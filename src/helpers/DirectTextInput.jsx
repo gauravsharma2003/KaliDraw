@@ -9,7 +9,6 @@ const DirectTextInput = {
   drawActiveText: (ctx, textInput, position, color = '#f54a00', options = {}) => {
     if (!position) return;
     
-    // Extract styling properties
     const { 
       fontSize = 16, 
       fontWeight = 'normal', 
@@ -18,134 +17,97 @@ const DirectTextInput = {
       align = 'left'
     } = options;
     
-    
-    // Set the font with styling
     ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`;
+    ctx.textBaseline = 'top';
     
-    // Calculate text metrics
     const lines = textInput.split('\n');
     const lineHeight = fontSize * 1.2;
     
-    // Find the widest line for the box width
-    let maxWidth = 100; // Minimum width
-    for (const line of lines) {
+    // Define padding
+    const paddingLeft = 10;
+    const paddingRight = 10;
+    const paddingTop = 5;
+    const paddingBottom = 5;
+    
+    // Calculate content width
+    let contentWidth = 100; // minimum width
+    lines.forEach(line => {
       const metrics = ctx.measureText(line);
-      maxWidth = Math.max(maxWidth, metrics.width + 20); // Add some padding
-    }
+      contentWidth = Math.max(contentWidth, metrics.width);
+    });
+    const maxWidth = contentWidth + paddingLeft + paddingRight;
+    const boxHeight = Math.max(lineHeight * lines.length + paddingTop + paddingBottom, 40);
     
-    // Calculate box height based on number of lines
-    const boxHeight = Math.max(lineHeight * lines.length + 20, 40);
-    
-    // Draw the box exactly at the click position
+    // Draw dashed rectangle box
     ctx.strokeStyle = '#7e73ff';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
-    ctx.strokeRect(
-      position.x, 
-      position.y, 
-      maxWidth,
-      boxHeight
-    );
+    ctx.strokeRect(position.x, position.y, maxWidth, boxHeight);
     ctx.setLineDash([]);
     
-    // Draw the text itself with proper alignment
-    ctx.fillStyle = color;
-    ctx.textAlign = align;
-    
+    // Set text alignment and calculate xOffset
     let xOffset;
-    switch (align) {
-      case 'center':
-        xOffset = position.x + maxWidth / 2;
-        break;
-      case 'right':
-        xOffset = position.x + maxWidth - 10;
-        break;
-      case 'left':
-      default:
-        xOffset = position.x + 10;
-        break;
+    if (align === 'center') {
+      xOffset = position.x + maxWidth / 2;
+      ctx.textAlign = 'center';
+    } else if (align === 'right') {
+      xOffset = position.x + maxWidth - paddingRight;
+      ctx.textAlign = 'right';
+    } else {
+      xOffset = position.x + paddingLeft;
+      ctx.textAlign = 'left';
     }
     
+    // Draw text lines
+    ctx.fillStyle = color;
     lines.forEach((line, index) => {
-      ctx.fillText(line, xOffset, position.y + 20 + (index * lineHeight));
-      
-      // Draw underline if needed
+      ctx.fillText(line, xOffset, position.y + paddingTop + index * lineHeight);
       if (textDecoration === 'underline') {
         const metrics = ctx.measureText(line);
-        const lineWidth = metrics.width;
-        
-        // Calculate underline position based on alignment
         let underlineX;
-        switch (align) {
-          case 'center':
-            underlineX = xOffset - lineWidth / 2;
-            break;
-          case 'right':
-            underlineX = xOffset - lineWidth;
-            break;
-          case 'left':
-          default:
-            underlineX = xOffset;
-            break;
+        if (align === 'center') {
+          underlineX = xOffset - metrics.width / 2;
+        } else if (align === 'right') {
+          underlineX = xOffset - metrics.width;
+        } else {
+          underlineX = xOffset;
         }
-        
         ctx.strokeStyle = color;
         ctx.lineWidth = fontSize / 15;
         ctx.beginPath();
-        ctx.moveTo(underlineX, position.y + 20 + (index * lineHeight) + (fontSize / 10));
-        ctx.lineTo(underlineX + lineWidth, position.y + 20 + (index * lineHeight) + (fontSize / 10));
+        ctx.moveTo(underlineX, position.y + paddingTop + index * lineHeight + fontSize);
+        ctx.lineTo(underlineX + metrics.width, position.y + paddingTop + index * lineHeight + fontSize);
         ctx.stroke();
       }
     });
     
-    // Add a cursor indicator (blinking effect)
+    // Draw cursor indicator
     const cursorVisible = Math.floor(Date.now() / 500) % 2 === 0;
     if (cursorVisible) {
-      // Calculate cursor position based on text position and current text
-      if (lines.length === 0) {
-        // If no text, cursor at start position
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(xOffset, position.y + 20);
-        ctx.lineTo(xOffset, position.y + 20 + lineHeight);
-        ctx.stroke();
+      let currentLine = lines[lines.length - 1] || '';
+      let currentLineWidth = ctx.measureText(currentLine).width;
+      let cursorX;
+      if (align === 'center') {
+        cursorX = position.x + maxWidth / 2 + currentLineWidth / 2;
+      } else if (align === 'right') {
+        cursorX = position.x + maxWidth - paddingRight;
       } else {
-        // Calculate cursor position at the end of the last line
-        const lastLine = lines[lines.length - 1];
-        const lastLineWidth = ctx.measureText(lastLine).width;
-        
-        let cursorX;
-        switch (align) {
-          case 'center':
-            cursorX = xOffset + lastLineWidth / 2;
-            break;
-          case 'right':
-            cursorX = xOffset;
-            break;
-          case 'left':
-          default:
-            cursorX = xOffset + lastLineWidth;
-            break;
-        }
-        
-        const cursorY = position.y + 20 + (lines.length - 1) * lineHeight;
-        
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(cursorX, cursorY);
-        ctx.lineTo(cursorX, cursorY + lineHeight);
-        ctx.stroke();
+        cursorX = position.x + paddingLeft + currentLineWidth;
       }
+      const cursorY = position.y + paddingTop + (lines.length - 1) * lineHeight;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cursorX, cursorY);
+      ctx.lineTo(cursorX, cursorY + lineHeight);
+      ctx.stroke();
     }
     
-    // Return the dimensions with the specific padding info
     return {
       width: maxWidth,
       height: boxHeight,
-      paddingLeft: 10,
-      paddingTop: 20
+      paddingLeft: paddingLeft,
+      paddingTop: paddingTop
     };
   },
   
@@ -191,21 +153,28 @@ const DirectTextInput = {
     const lines = text.split('\n');
     const lineHeight = fontSize * 1.2;
     
-    // Find the widest line for the box width
-    let maxWidth = 100; // Minimum width
+    // Define padding consistent with drawActiveText
+    const paddingLeft = 10;
+    const paddingRight = 10;
+    const paddingTop = 5;
+    const paddingBottom = 5;
+    
+    // Find the widest line for the content width
+    let contentWidth = 100; // Minimum content width
     for (const line of lines) {
       const metrics = ctx.measureText(line);
-      maxWidth = Math.max(maxWidth, metrics.width + 20); // Add some padding
+      contentWidth = Math.max(contentWidth, metrics.width);
     }
+    const maxWidth = contentWidth + paddingLeft + paddingRight;
     
     // Calculate box height based on number of lines
-    const boxHeight = Math.max(lineHeight * lines.length + 20, 40);
+    const boxHeight = Math.max(lineHeight * lines.length + paddingTop + paddingBottom, 40);
     
     return {
       width: maxWidth,
       height: boxHeight,
-      paddingLeft: 10,
-      paddingTop: 20
+      paddingLeft: paddingLeft,
+      paddingTop: paddingTop
     };
   }
 };

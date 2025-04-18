@@ -143,15 +143,14 @@ export function isPointInShape(point, shape) {
 export function getShapeBoundingBox(shape) {
   if (!shape) return null;
   if (shape.type === 'rectangle' || shape.type === 'text') {
+    // For text shapes, use top-left coordinates directly from the shape
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   }
   if (shape.type === 'circle') {
-    // For circles created using createCircle, shape.x and shape.y are already the top-left of the circle's bounding box,
-    // and shape.radius is the radius. Thus the bounding box dimensions are 2 * radius.
+    // For circles created using createCircle
     return { x: shape.x, y: shape.y, width: shape.radius * 2, height: shape.radius * 2 };
   }
-  // For other shapes, for example pencil, we might need to compute the bounding box differently
-  // Here, fallback to a basic bounding box if properties exist
+  // Fallback for other shapes
   return { x: shape.x || 0, y: shape.y || 0, width: shape.width || 0, height: shape.height || 0 };
 }
 
@@ -168,56 +167,71 @@ export function resizeShape(shape, handle, point, dragStart) {
   
   const resized = { ...shape };
   
-  if (shape.type === 'rectangle') {
-    // Handle rectangle resizing
-    // Based on which handle is being dragged
-    if ('x' in shape && 'y' in shape && 'width' in shape && 'height' in shape) {
-      switch (handle) {
-        case 'topLeft':
-          resized.width += resized.x - point.x;
-          resized.height += resized.y - point.y;
-          resized.x = point.x;
-          resized.y = point.y;
-          break;
-        case 'topCenter':
-          resized.height += resized.y - point.y;
-          resized.y = point.y;
-          break;
-        case 'topRight':
-          resized.width = point.x - resized.x;
-          resized.height += resized.y - point.y;
-          resized.y = point.y;
-          break;
-        case 'middleLeft':
-          resized.width += resized.x - point.x;
-          resized.x = point.x;
-          break;
-        case 'middleRight':
-          resized.width = point.x - resized.x;
-          break;
-        case 'bottomLeft':
-          resized.width += resized.x - point.x;
-          resized.height = point.y - resized.y;
-          resized.x = point.x;
-          break;
-        case 'bottomCenter':
-          resized.height = point.y - resized.y;
-          break;
-        case 'bottomRight':
-          resized.width = point.x - resized.x;
-          resized.height = point.y - resized.y;
-          break;
+  if (shape.type === 'rectangle' || shape.type === 'text') {
+    // Use the current shape's top-left as the fixed edge base for each handle
+    const MIN_SIZE = 10;
+    switch (handle) {
+      case 'topLeft': {
+        const fixedRight = shape.x + shape.width;
+        const fixedBottom = shape.y + shape.height;
+        resized.x = Math.min(point.x, fixedRight - MIN_SIZE);
+        resized.y = Math.min(point.y, fixedBottom - MIN_SIZE);
+        resized.width = fixedRight - resized.x;
+        resized.height = fixedBottom - resized.y;
+        break;
       }
-      
-      // Ensure width/height are not negative
-      if (resized.width < 0) {
-        resized.x += resized.width;
-        resized.width = Math.abs(resized.width);
+      case 'topCenter': {
+        const fixedBottom = shape.y + shape.height;
+        resized.y = Math.min(point.y, fixedBottom - MIN_SIZE);
+        resized.height = fixedBottom - resized.y;
+        break;
       }
-      
-      if (resized.height < 0) {
-        resized.y += resized.height;
-        resized.height = Math.abs(resized.height);
+      case 'topRight': {
+        const fixedLeft = shape.x;
+        const fixedBottom = shape.y + shape.height;
+        resized.y = Math.min(point.y, fixedBottom - MIN_SIZE);
+        resized.width = Math.max(point.x - fixedLeft, MIN_SIZE);
+        resized.height = fixedBottom - resized.y;
+        break;
+      }
+      case 'middleLeft': {
+        const fixedRight = shape.x + shape.width;
+        resized.x = Math.min(point.x, fixedRight - MIN_SIZE);
+        resized.width = fixedRight - resized.x;
+        break;
+      }
+      case 'middleRight': {
+        const fixedLeft = shape.x;
+        resized.width = Math.max(point.x - fixedLeft, MIN_SIZE);
+        break;
+      }
+      case 'bottomLeft': {
+        const fixedTop = shape.y;
+        const fixedRight = shape.x + shape.width;
+        resized.x = Math.min(point.x, fixedRight - MIN_SIZE);
+        resized.width = fixedRight - resized.x;
+        resized.height = Math.max(point.y - fixedTop, MIN_SIZE);
+        break;
+      }
+      case 'bottomCenter': {
+        const fixedTop = shape.y;
+        resized.height = Math.max(point.y - fixedTop, MIN_SIZE);
+        break;
+      }
+      case 'bottomRight': {
+        const fixedTop = shape.y;
+        const fixedLeft = shape.x;
+        resized.width = Math.max(point.x - fixedLeft, MIN_SIZE);
+        resized.height = Math.max(point.y - fixedTop, MIN_SIZE);
+        break;
+      }
+    }
+    // For text, optionally scale font size based on height change
+    if (shape.type === 'text') {
+      const originalHeight = shape.height;
+      const heightRatio = resized.height / originalHeight;
+      if (resized.fontSize) {
+        resized.fontSize = Math.max(8, Math.round(resized.fontSize * heightRatio));
       }
     }
   } else if (shape.type === 'circle') {
@@ -241,62 +255,50 @@ export function resizeShape(shape, handle, point, dragStart) {
       resized.x = center.x - finalRadius;
       resized.y = center.y - finalRadius;
     }
-  } else if (shape.type === 'text') {
-    // Handle text resizing
-    if ('x' in shape && 'y' in shape) {
-      // Get the current bounding box
-      const box = getShapeBoundingBox(shape);
-      const originalWidth = box.width;
-      const originalHeight = box.height;
+  } else if (shape.type === 'pencil' && shape.points) {
+    // For pencil, check if point is close to any of the line segments
+    const tolerance = 5; // Distance tolerance
+    
+    for (let i = 0; i < shape.points.length - 1; i++) {
+      const p1 = shape.points[i];
+      const p2 = shape.points[i + 1];
       
-      // Update dimensions based on handle
-      switch (handle) {
-        case 'topLeft':
-          resized.width = originalWidth + (box.x - point.x);
-          resized.height = originalHeight + (box.y - point.y);
-          resized.x -= (point.x - box.x);
-          resized.y -= (point.y - box.y);
-          break;
-        case 'topCenter':
-          resized.height = originalHeight + (box.y - point.y);
-          resized.y -= (point.y - box.y);
-          break;
-        case 'topRight':
-          resized.width = point.x - box.x;
-          resized.height = originalHeight + (box.y - point.y);
-          resized.y -= (point.y - box.y);
-          break;
-        case 'middleLeft':
-          resized.width = originalWidth + (box.x - point.x);
-          resized.x -= (point.x - box.x);
-          break;
-        case 'middleRight':
-          resized.width = point.x - box.x;
-          break;
-        case 'bottomLeft':
-          resized.width = originalWidth + (box.x - point.x);
-          resized.height = point.y - box.y;
-          resized.x -= (point.x - box.x);
-          break;
-        case 'bottomCenter':
-          resized.height = point.y - box.y;
-          break;
-        case 'bottomRight':
-          resized.width = point.x - box.x;
-          resized.height = point.y - box.y;
-          break;
-      }
+      // Calculate distance from point to line segment
+      const lengthSquared = Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2);
+      if (lengthSquared === 0) continue; // Same point
       
-      // Ensure minimum size
-      resized.width = Math.max(resized.width, 10);
-      resized.height = Math.max(resized.height, 10);
+      // Calculate projection
+      const t = Math.max(0, Math.min(1, (
+        (point.x - p1.x) * (p2.x - p1.x) + 
+        (point.y - p1.y) * (p2.y - p1.y)
+      ) / lengthSquared));
       
-      // Optionally scale font size based on height change
-      const heightRatio = resized.height / originalHeight;
-      if (resized.fontSize) {
-        resized.fontSize = Math.max(8, Math.round(resized.fontSize * heightRatio));
+      const projection = {
+        x: p1.x + t * (p2.x - p1.x),
+        y: p1.y + t * (p2.y - p1.y)
+      };
+      
+      const distance = Math.sqrt(
+        Math.pow(point.x - projection.x, 2) + 
+        Math.pow(point.y - projection.y, 2)
+      );
+      
+      if (distance <= tolerance) {
+        return true;
       }
     }
+    
+    return false;
+  } else if (shape.type === 'text') {
+    // Get the text bounding box and check if point is inside
+    const box = getShapeBoundingBox(shape);
+    
+    return (
+      point.x >= box.x &&
+      point.x <= box.x + box.width &&
+      point.y >= box.y &&
+      point.y <= box.y + box.height
+    );
   }
   
   return resized;
@@ -365,9 +367,10 @@ export const scaleText = (textShape, scaleFactor) => {
  * @returns {Object} - The bounding box with x, y, width, height
  */
 export const getTextBoundingBox = (textShape) => {
+  // Return the bounding box with top-left coordinates as stored in the text shape
   return {
-    x: textShape.x - textShape.width / 2,
-    y: textShape.y - textShape.height / 2,
+    x: textShape.x,
+    y: textShape.y,
     width: textShape.width,
     height: textShape.height
   };

@@ -264,35 +264,7 @@ export const createText = (text, x, y, width, height, fontSize = 16, color = DRA
   // Generate ID for the text shape
   const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
   
-  // Calculate text size if width/height not provided
-  if (!width || !height) {
-    // Create a temporary canvas for measuring text
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    
-    // Set font properties
-    ctx.font = `${fontSize}px Arial`;
-    
-    // Split text by newlines
-    const lines = text.split('\n');
-    
-    // Measure width of each line
-    let maxWidth = 0;
-    lines.forEach(line => {
-      const metrics = ctx.measureText(line);
-      maxWidth = Math.max(maxWidth, metrics.width);
-    });
-    
-    // Calculate total height based on line count and font size
-    const lineHeight = fontSize * 1.2;
-    const totalHeight = lines.length * lineHeight;
-    
-    width = width || maxWidth + fontSize * 2; // Add some padding
-    height = height || totalHeight + fontSize; // Add some padding
-  }
-  
   return {
-    id,
     type: 'text',
     text: text || '',
     x,
@@ -302,11 +274,16 @@ export const createText = (text, x, y, width, height, fontSize = 16, color = DRA
     fontSize,
     color,
     align: 'left',
-    verticalAlign: 'middle',
+    verticalAlign: 'top',
+    textPadding: {
+      top: 5,
+      left: 10
+    },
     fontFamily: 'Arial',
     fontWeight: 'normal',
     fontStyle: 'normal',
-    textDecoration: 'none'
+    textDecoration: 'none',
+    id
   };
 };
 
