@@ -2,11 +2,11 @@ import React from 'react';
 import { Sun, Moon, Square, Circle, Pencil, Type, MousePointer2 } from 'lucide-react';
 
 const tools = [
-  { name: 'Select', icon: MousePointer2, shortcut: 'S' },
-  { name: 'Rectangle', icon: Square, shortcut: 'R' },
-  { name: 'Circle', icon: Circle, shortcut: 'C' },
-  { name: 'Pencil', icon: Pencil, shortcut: 'P' },
-  { name: 'Text', icon: Type, shortcut: 'T' }
+  { id: 'select', name: 'Select', icon: MousePointer2, shortcut: 'S' },
+  { id: 'rectangle', name: 'Rectangle', icon: Square, shortcut: 'R' },
+  { id: 'circle', name: 'Circle', icon: Circle, shortcut: 'C' },
+  { id: 'pencil', name: 'Pencil', icon: Pencil, shortcut: 'P' },
+  { id: 'text', name: 'Text', icon: Type, shortcut: 'T' }
 ];
 
 const Navbar = ({ isDarkMode, toggleTheme, activeTool, setActiveTool }) => {
@@ -22,10 +22,10 @@ const Navbar = ({ isDarkMode, toggleTheme, activeTool, setActiveTool }) => {
         <div className="flex items-center gap-1">
           {tools.map((tool) => (
             <button
-              key={tool.name}
-              onClick={() => setActiveTool(tool.name.toLowerCase())}
+              key={tool.id}
+              onClick={() => setActiveTool(tool.id)}
               className={`p-2 rounded-lg transition-all duration-200 ${
-                activeTool === tool.name.toLowerCase()
+                activeTool === tool.id
                   ? 'bg-[#f54a00]/20 text-[#f54a00]'
                   : 'hover:bg-gray-200/50 dark:hover:bg-zinc-800/50 text-gray-700 dark:text-gray-300'
               }`}
