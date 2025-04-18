@@ -64,7 +64,7 @@ function Canvas({ activeTool }) {
       const zoomDirection = e.deltaY < 0 ? 1 : -1;
       
       // Calculate new zoom level
-      const zoomFactor = 0.05; // How much to zoom per scroll
+      const zoomFactor = 0.02; // How much to zoom per scroll - reduced from 0.05
       const newZoomLevel = Math.min(Math.max(zoomLevel + (zoomDirection * zoomFactor), 0.1), 5);
       
       // Adjust canvas offset to zoom centered on cursor
@@ -558,8 +558,8 @@ function Canvas({ activeTool }) {
         />
       )}
       <ZoomControls zoomLevel={zoomLevel} setZoomLevel={setZoomLevel} />
-      <div className="absolute bottom-4 left-4 text-xs text-white bg-black/50 px-2 py-1 rounded">
-        Zoom: {Math.round(zoomLevel * 100)}% | Position: x:{Math.round(cursorPosition.x)}, y:{Math.round(cursorPosition.y)}
+      <div className="absolute bottom-20 left-4 text-xs text-white bg-black/10 px-2 py-1 rounded">
+        Position: x:{Math.round(cursorPosition.x)}, y:{Math.round(cursorPosition.y)}
       </div>
     </div>
   );
