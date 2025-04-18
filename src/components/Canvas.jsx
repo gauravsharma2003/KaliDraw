@@ -23,8 +23,15 @@ function Canvas({ activeTool }) {
   const [selectedShape, setSelectedShape] = useState(null);
   const [resizeHandle, setResizeHandle] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isMovingShape, setIsMovingShape] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  
+  // Store original positions to prevent jitter
+  const originalShapePos = useRef(null);
+  const originalCanvasOffset = useRef(null);
+  const resizeStartPoint = useRef(null);
 
   // Setup canvas
   useEffect(() => {
@@ -40,6 +47,44 @@ function Canvas({ activeTool }) {
     return cleanup;
   }, []);
   
+  // Add wheel event for zooming with trackpad
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    
+    const handleWheel = (e) => {
+      // Prevent default to avoid page scrolling
+      e.preventDefault();
+      
+      // Get the cursor position relative to the canvas
+      const rect = canvasRef.current.getBoundingClientRect();
+      const cursorX = (e.clientX - rect.left) / zoomLevel;
+      const cursorY = (e.clientY - rect.top) / zoomLevel;
+      
+      // Determine zoom direction (in or out)
+      const zoomDirection = e.deltaY < 0 ? 1 : -1;
+      
+      // Calculate new zoom level
+      const zoomFactor = 0.05; // How much to zoom per scroll
+      const newZoomLevel = Math.min(Math.max(zoomLevel + (zoomDirection * zoomFactor), 0.1), 5);
+      
+      // Adjust canvas offset to zoom centered on cursor
+      if (newZoomLevel !== zoomLevel) {
+        const newOffsetX = canvasOffset.x - (cursorX * (newZoomLevel - zoomLevel));
+        const newOffsetY = canvasOffset.y - (cursorY * (newZoomLevel - zoomLevel));
+        
+        setZoomLevel(newZoomLevel);
+        setCanvasOffset({ x: newOffsetX, y: newOffsetY });
+      }
+    };
+    
+    const canvas = canvasRef.current;
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    
+    return () => {
+      canvas.removeEventListener('wheel', handleWheel);
+    };
+  }, [zoomLevel, canvasOffset]);
+  
   // Listen for delete key to remove selected shape
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -52,6 +97,52 @@ function Canvas({ activeTool }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedShape]);
+
+  // Get object bounding box for selection
+  const getShapeBoundingBox = (shape) => {
+    switch (shape.type) {
+      case 'rectangle':
+        return {
+          x: shape.x,
+          y: shape.y,
+          width: shape.width,
+          height: shape.height
+        };
+      case 'circle':
+        return {
+          x: shape.x,
+          y: shape.y,
+          width: shape.radius * 2,
+          height: shape.radius * 2
+        };
+      case 'text':
+        return {
+          x: shape.x - 50,
+          y: shape.y - 20,
+          width: 100,
+          height: 40
+        };
+      case 'pencil':
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        
+        shape.points.forEach(point => {
+          minX = Math.min(minX, point.x);
+          minY = Math.min(minY, point.y);
+          maxX = Math.max(maxX, point.x);
+          maxY = Math.max(maxY, point.y);
+        });
+        
+        return {
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY
+        };
+      default:
+        return { x: 0, y: 0, width: 0, height: 0 };
+    }
+  };
 
   // Redraw shapes when they change
   useEffect(() => {
@@ -69,138 +160,57 @@ function Canvas({ activeTool }) {
       ctx.scale(zoomLevel, zoomLevel);
       ctx.translate(canvasOffset.x, canvasOffset.y);
       
-      // Draw selection rectangle
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]); // Dashed line
-      
       const HANDLE_SIZE = 8;
+      const box = getShapeBoundingBox(selectedShape);
       
-      switch (selectedShape.type) {
-        case 'rectangle':
-          ctx.strokeRect(
-            selectedShape.x - 5, 
-            selectedShape.y - 5, 
-            selectedShape.width + 10, 
-            selectedShape.height + 10
-          );
-          
-          // Draw resize handles (white squares)
-          ctx.fillStyle = 'white';
-          ctx.setLineDash([]); // Reset dash
-          
-          // Top-left
-          ctx.fillRect(
-            selectedShape.x - HANDLE_SIZE/2, 
-            selectedShape.y - HANDLE_SIZE/2, 
-            HANDLE_SIZE, 
-            HANDLE_SIZE
-          );
-          
-          // Top-right
-          ctx.fillRect(
-            selectedShape.x + selectedShape.width - HANDLE_SIZE/2, 
-            selectedShape.y - HANDLE_SIZE/2, 
-            HANDLE_SIZE, 
-            HANDLE_SIZE
-          );
-          
-          // Bottom-left
-          ctx.fillRect(
-            selectedShape.x - HANDLE_SIZE/2, 
-            selectedShape.y + selectedShape.height - HANDLE_SIZE/2, 
-            HANDLE_SIZE, 
-            HANDLE_SIZE
-          );
-          
-          // Bottom-right
-          ctx.fillRect(
-            selectedShape.x + selectedShape.width - HANDLE_SIZE/2, 
-            selectedShape.y + selectedShape.height - HANDLE_SIZE/2, 
-            HANDLE_SIZE, 
-            HANDLE_SIZE
-          );
-          break;
-          
-        case 'circle':
-          // Draw selection circle
-          ctx.beginPath();
-          ctx.arc(
-            selectedShape.x + selectedShape.radius,
-            selectedShape.y + selectedShape.radius,
-            selectedShape.radius + 5,
-            0,
-            Math.PI * 2
-          );
-          ctx.stroke();
-          
-          // Draw resize handle
-          ctx.fillStyle = 'white';
-          ctx.setLineDash([]); // Reset dash
-          ctx.fillRect(
-            selectedShape.x + selectedShape.radius * 2 - HANDLE_SIZE/2,
-            selectedShape.y + selectedShape.radius * 2 - HANDLE_SIZE/2,
-            HANDLE_SIZE,
-            HANDLE_SIZE
-          );
-          break;
-          
-        case 'text':
-          // Draw selection rectangle around text
-          ctx.strokeRect(
-            selectedShape.x - 50 - 5, 
-            selectedShape.y - 20 - 5, 
-            100 + 10, 
-            40 + 10
-          );
-          
-          // Draw resize handle
-          ctx.fillStyle = 'white';
-          ctx.setLineDash([]); // Reset dash
-          ctx.fillRect(
-            selectedShape.x + 50 - HANDLE_SIZE/2,
-            selectedShape.y + 20 - HANDLE_SIZE/2,
-            HANDLE_SIZE,
-            HANDLE_SIZE
-          );
-          break;
-          
-        case 'pencil':
-          // Find bounding box
-          let minX = Infinity, minY = Infinity;
-          let maxX = -Infinity, maxY = -Infinity;
-          
-          selectedShape.points.forEach(point => {
-            minX = Math.min(minX, point.x);
-            minY = Math.min(minY, point.y);
-            maxX = Math.max(maxX, point.x);
-            maxY = Math.max(maxY, point.y);
-          });
-          
-          // Draw selection rectangle
-          ctx.strokeRect(
-            minX - 5, 
-            minY - 5, 
-            maxX - minX + 10, 
-            maxY - minY + 10
-          );
-          
-          // Draw resize handle
-          ctx.fillStyle = 'white';
-          ctx.setLineDash([]); // Reset dash
-          ctx.fillRect(
-            maxX - HANDLE_SIZE/2,
-            maxY - HANDLE_SIZE/2,
-            HANDLE_SIZE,
-            HANDLE_SIZE
-          );
-          break;
-      }
+      // Draw selection rectangle around the object with full border
+      ctx.strokeStyle = '#7e73ff'; // Purple outline matching the image
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.strokeRect(
+        box.x - 5, 
+        box.y - 5, 
+        box.width + 10, 
+        box.height + 10
+      );
+      
+      // Draw resize handles (white squares with blue border)
+      const drawHandle = (x, y) => {
+        ctx.fillStyle = 'white';
+        ctx.strokeStyle = '#7e73ff';
+        ctx.lineWidth = 1;
+        
+        // Fill and stroke to create white square with blue border
+        ctx.fillRect(x - HANDLE_SIZE/2, y - HANDLE_SIZE/2, HANDLE_SIZE, HANDLE_SIZE);
+        ctx.strokeRect(x - HANDLE_SIZE/2, y - HANDLE_SIZE/2, HANDLE_SIZE, HANDLE_SIZE);
+      };
+      
+      // Top-left handle
+      drawHandle(box.x - 5, box.y - 5);
+      
+      // Top-middle handle
+      drawHandle(box.x + box.width/2, box.y - 5);
+      
+      // Top-right handle
+      drawHandle(box.x + box.width + 5, box.y - 5);
+      
+      // Middle-left handle
+      drawHandle(box.x - 5, box.y + box.height/2);
+      
+      // Middle-right handle
+      drawHandle(box.x + box.width + 5, box.y + box.height/2);
+      
+      // Bottom-left handle
+      drawHandle(box.x - 5, box.y + box.height + 5);
+      
+      // Bottom-middle handle
+      drawHandle(box.x + box.width/2, box.y + box.height + 5);
+      
+      // Bottom-right handle
+      drawHandle(box.x + box.width + 5, box.y + box.height + 5);
       
       ctx.restore();
     }
-    
-    console.log('Redrawing shapes', { shapes, selectedShape, zoomLevel });
   }, [shapes, selectedShape, zoomLevel, canvasOffset]);
 
   const handleMouseDown = (e) => {
@@ -208,29 +218,62 @@ function Canvas({ activeTool }) {
     
     const canvas = canvasRef.current;
     const point = getCanvasCoordinates(canvas, e, zoomLevel, canvasOffset);
+    setCursorPosition(point);
     
     console.log('Mouse down', { activeTool, point });
 
     if (activeTool === 'select') {
-      // Check if clicking on a shape
+      // Store original positions to prevent jitter
+      if (selectedShape) {
+        originalShapePos.current = { ...selectedShape };
+      }
+      originalCanvasOffset.current = { ...canvasOffset };
+      resizeStartPoint.current = point;
+      
+      // Always check for resize handles first if a shape is selected
+      if (selectedShape) {
+        const box = getShapeBoundingBox(selectedShape);
+        const HANDLE_SIZE = 12; // Slightly larger hit area than visual size
+
+        // Check each resize handle
+        const handles = [
+          { name: 'topLeft', x: box.x - 5, y: box.y - 5 },
+          { name: 'topCenter', x: box.x + box.width/2, y: box.y - 5 },
+          { name: 'topRight', x: box.x + box.width + 5, y: box.y - 5 },
+          { name: 'middleLeft', x: box.x - 5, y: box.y + box.height/2 },
+          { name: 'middleRight', x: box.x + box.width + 5, y: box.y + box.height/2 },
+          { name: 'bottomLeft', x: box.x - 5, y: box.y + box.height + 5 },
+          { name: 'bottomCenter', x: box.x + box.width/2, y: box.y + box.height + 5 },
+          { name: 'bottomRight', x: box.x + box.width + 5, y: box.y + box.height + 5 }
+        ];
+
+        for (const handle of handles) {
+          if (
+            Math.abs(point.x - handle.x) <= HANDLE_SIZE/2 &&
+            Math.abs(point.y - handle.y) <= HANDLE_SIZE/2
+          ) {
+            setResizeHandle(handle.name);
+            setIsDragging(true);
+            setIsMovingShape(false);
+            return;
+          }
+        }
+      }
+      
+      // Then check if clicking on any shape
       const clickedShape = shapes.find(shape => isPointInShape(point, shape));
       
       if (clickedShape) {
+        // Clicked inside a shape - select it and prepare to move it
         setSelectedShape(clickedShape);
-        // Check if clicking on a resize handle
-        const handle = getResizeHandle(point, clickedShape);
-        console.log('Resize handle:', handle);
-        
-        if (handle) {
-          setResizeHandle(handle);
-          setIsDragging(true);
-        } else {
-          setDragStart(point);
-          setIsDragging(true);
-        }
+        originalShapePos.current = { ...clickedShape };
+        setIsMovingShape(true);
+        setIsDragging(true);
+        setDragStart(point);
       } else {
-        // Clicked on empty space, deselect any selected shape
+        // Clicked on empty space - pan the canvas
         setSelectedShape(null);
+        setIsMovingShape(false);
         setIsDragging(true);
         setDragStart(point);
       }
@@ -238,6 +281,7 @@ function Canvas({ activeTool }) {
     } else {
       // If switching to drawing mode, deselect any selected shape
       setSelectedShape(null);
+      setIsMovingShape(false);
     }
 
     if (activeTool === 'text') {
@@ -254,41 +298,153 @@ function Canvas({ activeTool }) {
 
   const handleMouseMove = (e) => {
     if (!canvasRef.current) return;
-    if (!isDrawing && !isDragging) return;
     
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
     const point = getCanvasCoordinates(canvas, e, zoomLevel, canvasOffset);
+    setCursorPosition(point);
+    
+    if (!isDrawing && !isDragging) return;
+    
+    const ctx = canvas.getContext('2d');
 
     if (activeTool === 'select' && isDragging) {
-      if (selectedShape && resizeHandle) {
+      if (selectedShape && resizeHandle && resizeStartPoint.current) {
+        // Resizing shape with handle - use fixed starting point to avoid jitter
         console.log('Resizing with handle:', resizeHandle);
-        const updatedShape = resizeShape(selectedShape, resizeHandle, point);
+        
+        const box = getShapeBoundingBox(selectedShape);
+        const dx = point.x - resizeStartPoint.current.x;
+        const dy = point.y - resizeStartPoint.current.y;
+        
+        let updatedShape = { ...selectedShape };
+        
+        switch (selectedShape.type) {
+          case 'rectangle':
+            if (resizeHandle === 'topLeft') {
+              updatedShape = {
+                ...updatedShape,
+                x: originalShapePos.current.x + dx,
+                y: originalShapePos.current.y + dy,
+                width: originalShapePos.current.width - dx,
+                height: originalShapePos.current.height - dy
+              };
+            } else if (resizeHandle === 'topCenter') {
+              updatedShape = {
+                ...updatedShape,
+                y: originalShapePos.current.y + dy,
+                height: originalShapePos.current.height - dy
+              };
+            } else if (resizeHandle === 'topRight') {
+              updatedShape = {
+                ...updatedShape,
+                y: originalShapePos.current.y + dy,
+                width: originalShapePos.current.width + dx,
+                height: originalShapePos.current.height - dy
+              };
+            } else if (resizeHandle === 'middleLeft') {
+              updatedShape = {
+                ...updatedShape,
+                x: originalShapePos.current.x + dx,
+                width: originalShapePos.current.width - dx
+              };
+            } else if (resizeHandle === 'middleRight') {
+              updatedShape = {
+                ...updatedShape,
+                width: originalShapePos.current.width + dx
+              };
+            } else if (resizeHandle === 'bottomLeft') {
+              updatedShape = {
+                ...updatedShape,
+                x: originalShapePos.current.x + dx,
+                width: originalShapePos.current.width - dx,
+                height: originalShapePos.current.height + dy
+              };
+            } else if (resizeHandle === 'bottomCenter') {
+              updatedShape = {
+                ...updatedShape,
+                height: originalShapePos.current.height + dy
+              };
+            } else if (resizeHandle === 'bottomRight') {
+              updatedShape = {
+                ...updatedShape,
+                width: originalShapePos.current.width + dx,
+                height: originalShapePos.current.height + dy
+              };
+            }
+            
+            // Ensure minimum dimensions
+            if (updatedShape.width < 10) {
+              updatedShape.width = 10;
+              updatedShape.x = originalShapePos.current.x + (originalShapePos.current.width - 10);
+            }
+            
+            if (updatedShape.height < 10) {
+              updatedShape.height = 10;
+              updatedShape.y = originalShapePos.current.y + (originalShapePos.current.height - 10);
+            }
+            break;
+            
+          case 'circle':
+            const centerX = originalShapePos.current.x + originalShapePos.current.radius;
+            const centerY = originalShapePos.current.y + originalShapePos.current.radius;
+            
+            // Calculate distance from center to new point
+            const distX = Math.abs(point.x - centerX);
+            const distY = Math.abs(point.y - centerY);
+            
+            // Use the maximum distance for uniform scaling
+            let newRadius = Math.max(distX, distY);
+            
+            // Ensure minimum radius
+            newRadius = Math.max(newRadius, 10);
+            
+            updatedShape = {
+              ...updatedShape,
+              radius: newRadius
+            };
+            break;
+            
+          case 'text':
+            // Simple movement for text
+            if (resizeHandle.includes('bottom') || resizeHandle.includes('Right')) {
+              // No resizing for text, just reposition
+              updatedShape = {
+                ...updatedShape,
+                x: originalShapePos.current.x + dx/2,
+                y: originalShapePos.current.y + dy/2
+              };
+            }
+            break;
+        }
+        
         setShapes(prev => prev.map(shape => 
           shape === selectedShape ? updatedShape : shape
         ));
         setSelectedShape(updatedShape);
-      } else if (selectedShape) {
+      } else if (isMovingShape && selectedShape && originalShapePos.current) {
+        // Moving a shape - calculate exact position from original
         const dx = point.x - dragStart.x;
         const dy = point.y - dragStart.y;
+        
         const updatedShape = {
           ...selectedShape,
-          x: selectedShape.x + dx,
-          y: selectedShape.y + dy
+          x: originalShapePos.current.x + dx,
+          y: originalShapePos.current.y + dy
         };
+        
         setShapes(prev => prev.map(shape => 
           shape === selectedShape ? updatedShape : shape
         ));
         setSelectedShape(updatedShape);
-        setDragStart(point);
-      } else {
+      } else if (originalCanvasOffset.current) {
+        // Panning the canvas - calculate exact offset from original
         const dx = point.x - dragStart.x;
         const dy = point.y - dragStart.y;
-        setCanvasOffset(prev => ({
-          x: prev.x + dx,
-          y: prev.y + dy
-        }));
-        setDragStart(point);
+        
+        setCanvasOffset({
+          x: originalCanvasOffset.current.x + dx,
+          y: originalCanvasOffset.current.y + dy
+        });
       }
       return;
     }
@@ -316,9 +472,15 @@ function Canvas({ activeTool }) {
     
     console.log('Mouse up', { activeTool, isDrawing, isDragging });
     
+    // Reset stored original positions
+    originalShapePos.current = null;
+    originalCanvasOffset.current = null;
+    resizeStartPoint.current = null;
+    
     if (activeTool === 'select') {
       setIsDragging(false);
       setResizeHandle(null);
+      setIsMovingShape(false);
       return;
     }
 
@@ -361,7 +523,9 @@ function Canvas({ activeTool }) {
     <div className="relative w-full h-full" style={{ height: 'calc(100vh - 80px)' }}>
       <canvas
         ref={canvasRef}
-        className="absolute top-0 left-0 w-full h-full bg-white dark:bg-zinc-900 cursor-crosshair"
+        className={`absolute top-0 left-0 w-full h-full bg-white dark:bg-zinc-900 ${
+          activeTool === 'select' ? 'cursor-move' : 'cursor-crosshair'
+        }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -394,6 +558,9 @@ function Canvas({ activeTool }) {
         />
       )}
       <ZoomControls zoomLevel={zoomLevel} setZoomLevel={setZoomLevel} />
+      <div className="absolute bottom-4 left-4 text-xs text-white bg-black/50 px-2 py-1 rounded">
+        Zoom: {Math.round(zoomLevel * 100)}% | Position: x:{Math.round(cursorPosition.x)}, y:{Math.round(cursorPosition.y)}
+      </div>
     </div>
   );
 }

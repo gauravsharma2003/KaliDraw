@@ -40,7 +40,7 @@ export const isPointInShape = (point, shape) => {
 };
 
 export const getResizeHandle = (point, shape) => {
-  const HANDLE_SIZE = 10; // Increased handle size for easier grabbing
+  const HANDLE_SIZE = 12; // Increased handle size for easier grabbing
   let handlePositions;
   
   switch (shape.type) {
@@ -54,11 +54,18 @@ export const getResizeHandle = (point, shape) => {
       break;
     case 'circle':
       handlePositions = {
+        topLeft: { x: shape.x, y: shape.y },
+        topRight: { x: shape.x + shape.radius * 2, y: shape.y },
+        bottomLeft: { x: shape.x, y: shape.y + shape.radius * 2 },
         bottomRight: { x: shape.x + shape.radius * 2, y: shape.y + shape.radius * 2 }
       };
       break;
     case 'text':
+      // For text, create handles at all four corners of the bounding box
       handlePositions = {
+        topLeft: { x: shape.x - 50, y: shape.y - 20 },
+        topRight: { x: shape.x + 50, y: shape.y - 20 },
+        bottomLeft: { x: shape.x - 50, y: shape.y + 20 },
         bottomRight: { x: shape.x + 50, y: shape.y + 20 }
       };
       break;
@@ -75,6 +82,9 @@ export const getResizeHandle = (point, shape) => {
       });
       
       handlePositions = {
+        topLeft: { x: minX, y: minY },
+        topRight: { x: maxX, y: minY },
+        bottomLeft: { x: minX, y: maxY },
         bottomRight: { x: maxX, y: maxY }
       };
       break;
@@ -134,29 +144,70 @@ export const resizeShape = (shape, handle, point) => {
           return shape;
       }
     case 'circle':
-      if (handle === 'bottomRight') {
-        const dx = point.x - shape.x;
-        const dy = point.y - shape.y;
-        const newRadius = Math.max(5, Math.min(dx, dy) / 2);
-        return {
-          ...shape,
-          radius: newRadius
-        };
+      // For circle, calculate radius based on handle position
+      switch (handle) {
+        case 'topLeft':
+          return {
+            ...shape,
+            radius: Math.max(10, Math.sqrt(
+              Math.pow(shape.x + shape.radius - point.x, 2) +
+              Math.pow(shape.y + shape.radius - point.y, 2)
+            ))
+          };
+        case 'topRight':
+          return {
+            ...shape,
+            radius: Math.max(10, Math.sqrt(
+              Math.pow(shape.x + shape.radius - point.x, 2) +
+              Math.pow(shape.y + shape.radius - point.y, 2)
+            ))
+          };
+        case 'bottomLeft':
+          return {
+            ...shape,
+            radius: Math.max(10, Math.sqrt(
+              Math.pow(shape.x + shape.radius - point.x, 2) +
+              Math.pow(shape.y + shape.radius - point.y, 2)
+            ))
+          };
+        case 'bottomRight':
+          return {
+            ...shape,
+            radius: Math.max(10, Math.sqrt(
+              Math.pow(shape.x + shape.radius - point.x, 2) +
+              Math.pow(shape.y + shape.radius - point.y, 2)
+            ))
+          };
+        default:
+          return shape;
       }
-      break;
     case 'text':
-      if (handle === 'bottomRight') {
-        // For text, we don't resize the actual text, just update its position
-        return shape;
+      // For text, we'll implement a simple scaling factor
+      // that adjusts the text box size
+      const textWidth = 100; // Default width of text box (from -50 to +50)
+      const textHeight = 40; // Default height of text box (from -20 to +20)
+      
+      // Calculate new text position and scale
+      switch (handle) {
+        case 'topLeft':
+        case 'topRight':
+        case 'bottomLeft':
+        case 'bottomRight':
+          return {
+            ...shape,
+            // Just update position for now (text scaling would require more complex changes)
+            x: Math.min(point.x + 50, point.x - 50),
+            y: Math.min(point.y + 20, point.y - 20)
+          };
+        default:
+          return shape;
       }
-      break;
     case 'pencil':
-      if (handle === 'bottomRight') {
-        // For pencil, we can't resize easily since it's a path
-        // Just return the original shape
-        return shape;
-      }
-      break;
+      // For pencil lines, we can't easily resize them as they're paths
+      // We could implement a scaling factor for the whole path
+      // But for now, we'll just leave it as is
+      return shape;
+    default:
+      return shape;
   }
-  return shape;
 }; 
