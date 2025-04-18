@@ -18,6 +18,7 @@ const DirectTextInput = {
       align = 'left'
     } = options;
     
+    
     // Set the font with styling
     ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`;
     
