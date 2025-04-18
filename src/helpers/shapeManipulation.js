@@ -141,125 +141,18 @@ export function isPointInShape(point, shape) {
  * @returns {Object} - The bounding box with x, y, width, height
  */
 export function getShapeBoundingBox(shape) {
-  if (!shape) return { x: 0, y: 0, width: 0, height: 0 };
-  
-  if (shape.type === 'rectangle') {
-    // For rectangles with explicit width/height
-    if ('x' in shape && 'y' in shape && 'width' in shape && 'height' in shape) {
-      return {
-        x: shape.x,
-        y: shape.y,
-        width: shape.width,
-        height: shape.height
-      };
-    }
-    
-    // For rectangles with start/end points
-    const minX = Math.min(shape.startX, shape.endX);
-    const maxX = Math.max(shape.startX, shape.endX);
-    const minY = Math.min(shape.startY, shape.endY);
-    const maxY = Math.max(shape.startY, shape.endY);
-    
-    return {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY
-    };
-  } else if (shape.type === 'circle') {
-    // For circles with explicit center and radius
-    if ('x' in shape && 'y' in shape && 'radius' in shape) {
-      // Return a box that exactly contains the circle
-      return {
-        x: shape.x - shape.radius,
-        y: shape.y - shape.radius,
-        width: shape.radius * 2,
-        height: shape.radius * 2
-      };
-    }
-    
-    // For circles with start/end points
-    const centerX = (shape.startX + shape.endX) / 2;
-    const centerY = (shape.startY + shape.endY) / 2;
-    const radius = Math.sqrt(
-      Math.pow(shape.endX - shape.startX, 2) + 
-      Math.pow(shape.endY - shape.startY, 2)
-    ) / 2;
-    
-    return {
-      x: centerX - radius,
-      y: centerY - radius,
-      width: radius * 2,
-      height: radius * 2
-    };
-  } else if (shape.type === 'triangle') {
-    const minX = Math.min(
-      shape.startX, 
-      shape.endX, 
-      shape.startX - (shape.endX - shape.startX)
-    );
-    const maxX = Math.max(
-      shape.startX, 
-      shape.endX, 
-      shape.startX - (shape.endX - shape.startX)
-    );
-    const minY = Math.min(shape.startY, shape.endY);
-    const maxY = Math.max(shape.startY, shape.endY);
-    
-    return {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY
-    };
-  } else if (shape.type === 'pencil' && shape.points && shape.points.length > 0) {
-    let minX = shape.points[0].x;
-    let maxX = shape.points[0].x;
-    let minY = shape.points[0].y;
-    let maxY = shape.points[0].y;
-    
-    for (let i = 1; i < shape.points.length; i++) {
-      const point = shape.points[i];
-      minX = Math.min(minX, point.x);
-      maxX = Math.max(maxX, point.x);
-      minY = Math.min(minY, point.y);
-      maxY = Math.max(maxY, point.y);
-    }
-    
-    return {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY
-    };
-  } else if (shape.type === 'text') {
-    // Get text measurements based on fontSize and text content
-    const fontSize = shape.fontSize || 16;
-    const lineHeight = fontSize * 1.2;
-    
-    // Calculate text width (approximation based on average char width)
-    // More accurate measurement would use canvas's measureText
-    const avgCharWidth = fontSize * 0.6;
-    
-    // Split by newlines if text contains them
-    const lines = (shape.text || '').split('\n');
-    const longestLine = lines.reduce((max, line) => 
-      Math.max(max, line.length), 0);
-    
-    // Calculate dimensions
-    // If the shape has specified width/height, use those instead
-    const textWidth = shape.width || (longestLine * avgCharWidth);
-    const textHeight = shape.height || (lines.length * lineHeight);
-    
-    return {
-      x: shape.x - textWidth / 2,
-      y: shape.y - textHeight / 2,
-      width: textWidth,
-      height: textHeight
-    };
+  if (!shape) return null;
+  if (shape.type === 'rectangle' || shape.type === 'text') {
+    return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   }
-  
-  return { x: 0, y: 0, width: 0, height: 0 };
+  if (shape.type === 'circle') {
+    // For circles created using createCircle, shape.x and shape.y are already the top-left of the circle's bounding box,
+    // and shape.radius is the radius. Thus the bounding box dimensions are 2 * radius.
+    return { x: shape.x, y: shape.y, width: shape.radius * 2, height: shape.radius * 2 };
+  }
+  // For other shapes, for example pencil, we might need to compute the bounding box differently
+  // Here, fallback to a basic bounding box if properties exist
+  return { x: shape.x || 0, y: shape.y || 0, width: shape.width || 0, height: shape.height || 0 };
 }
 
 /**
