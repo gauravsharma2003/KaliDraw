@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ZoomControls from '../helpers/ZoomControls';
 import { getCursorType, formatCursorPosition } from '../helpers/CursorHelper';
-import { handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick, handleKeyDown } from '../helpers/canvasEvents';
+import { handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick, handleKeyDown } from '../helpers/canvasEvents/';
 import { drawAll } from '../helpers/drawUtils';
 import { setupCanvas, getCanvasCoordinates } from '../helpers/canvasUtils/';
 import { DRAWING_COLOR } from '../helpers/drawingTools';

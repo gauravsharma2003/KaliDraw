@@ -1,14 +1,13 @@
-// Canvas event handling utilities
-import { getCanvasCoordinates, clearCanvas, redrawShapes } from './canvasUtils/';
+// Mouse event handling utilities
+import { getCanvasCoordinates, clearCanvas, redrawShapes } from '../canvasUtils/';
 import { 
   isPointInShape, 
   resizeShape, 
   getShapeBoundingBox, 
   getShapeResizeHandles 
-} from './shapeUtils';
-import DirectTextInput from './DirectTextInput';
-import { handleRectangleDrawing, handleCircleDrawing, handlePencilDrawing, drawPencil } from './drawingTools';
-// import { setTextAlignment, setTextVerticalAlignment } from './textManipulationUtils';  // if needed
+} from '../shapeUtils';
+import DirectTextInput from '../DirectTextInput';
+import { handleRectangleDrawing, handleCircleDrawing, handlePencilDrawing, drawPencil } from '../drawingTools';
 
 /**
  * Handle mouse down events on the canvas
@@ -402,141 +401,4 @@ export function handleMouseUp(e, ctx) {
   }
 
   setStartPoint(null);
-}
-
-/**
- * Handle wheel event for zooming centered on cursor
- */
-export function handleWheel(e, ctx) {
-  e.preventDefault();
-  const { canvasRef, zoomLevel, setZoomLevel, canvasOffset, setCanvasOffset } = ctx;
-  if (!canvasRef.current) return;
-  const rect = canvasRef.current.getBoundingClientRect();
-  const cursorX = (e.clientX - rect.left) / zoomLevel;
-  const cursorY = (e.clientY - rect.top) / zoomLevel;
-
-  const zoomDirection = e.deltaY < 0 ? 1 : -1;
-  const zoomFactor = 0.05;
-  const newZoom = Math.min(Math.max(zoomLevel + zoomDirection * zoomFactor, 0.1), 5);
-
-  if (newZoom !== zoomLevel) {
-    const newOffsetX = canvasOffset.x - (cursorX * (newZoom - zoomLevel));
-    const newOffsetY = canvasOffset.y - (cursorY * (newZoom - zoomLevel));
-    setZoomLevel(newZoom);
-    setCanvasOffset({ x: newOffsetX, y: newOffsetY });
-  }
-}
-
-/**
- * Handle double click for text editing.
- */
-export const handleDoubleClick = (e, ctx) => {
-  const {
-    canvasRef,
-    zoomLevel,
-    canvasOffset,
-    selectedShape,
-    shapes,
-    setShapes,
-    setSelectedShape,
-    setActiveTool,
-    textPosition,
-    handleEditTextClick,
-  } = ctx;
-
-  if (!canvasRef.current) return;
-
-  const rect = canvasRef.current.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / zoomLevel - canvasOffset.x;
-  const y = (e.clientY - rect.top) / zoomLevel - canvasOffset.y;
-
-  // If a text shape is selected, enable text editing
-  if (selectedShape && selectedShape.type === 'text') {
-    console.log('Double-clicked on text shape for editing');
-    handleEditTextClick();
-    return;
-  }
-
-  // Find if we clicked on a text shape
-  const clickedShape = shapes.find(shape => {
-    if (shape.type === 'text') {
-      return (
-        x >= shape.x &&
-        x <= shape.x + shape.width &&
-        y >= shape.y &&
-        y <= shape.y + shape.height
-      );
-    }
-    return false;
-  });
-
-  if (clickedShape) {
-    console.log('Found text shape to edit on double-click');
-    setSelectedShape(clickedShape);
-    setActiveTool('text');
-    // Allow time for selectedShape to update
-    setTimeout(() => {
-      handleEditTextClick();
-    }, 0);
-  }
-};
-
-/**
- * Handle keydown events for deletion, undo, and cycling tools.
- */
-export function handleKeyDown(e, ctx) {
-  const {
-    selectedShape,
-    setShapes,
-    setSelectedShape,
-    setUndoHistory,
-    undoHistory,
-    shapes,
-    isTypingText,
-    handleTextInput,
-    confirmTextInput,
-    setActiveTool
-  } = ctx;
-
-  // If in text input mode, let the text handler manage it
-  if (isTypingText) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      confirmTextInput(true); // Pass true to switch to select mode
-      return true;
-    }
-    
-    // Let the dedicated text input handler manage it
-    return;
-  }
-
-  // Delete selected shape with Delete or Backspace
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShape) {
-    e.preventDefault();
-    setUndoHistory(prev => [...prev, shapes]);
-    setShapes(prev => prev.filter(shape => shape.id !== selectedShape.id));
-    setSelectedShape(null);
-  }
-
-  // Handle undo with Ctrl+Z
-  if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault();
-    if (undoHistory && undoHistory.length > 0) {
-      const previousState = undoHistory[undoHistory.length - 1];
-      const newHistory = undoHistory.slice(0, -1);
-      setUndoHistory(newHistory);
-      setShapes(previousState);
-      setSelectedShape(null);
-    }
-  }
-
-  // Space bar cycles tools - NOTE: This does not modify the shapes array at all
-  if (e.key === ' ' && !isTypingText) {
-    e.preventDefault();
-    const tools = ['select', 'rectangle', 'circle', 'pencil', 'text'];
-    const idx = tools.indexOf(activeTool);
-    const next = tools[(idx + 1) % tools.length];
-    setActiveTool(next);
-    // We don't modify shapes here, just change the tool
-  }
 } 
