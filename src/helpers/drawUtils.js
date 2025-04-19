@@ -1,6 +1,6 @@
 import DirectTextInput from './DirectTextInput';
 import * as drawingTools from './drawingTools';
-import { clearCanvas } from './canvasUtils';
+import { clearCanvas } from './canvasUtils/';
 import { 
   getShapeBoundingBox,
   getShapeResizeHandles 

@@ -3,7 +3,7 @@ import ZoomControls from '../helpers/ZoomControls';
 import { getCursorType, formatCursorPosition } from '../helpers/CursorHelper';
 import { handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick, handleKeyDown } from '../helpers/canvasEvents';
 import { drawAll } from '../helpers/drawUtils';
-import { setupCanvas, getCanvasCoordinates } from '../helpers/canvasUtils';
+import { setupCanvas, getCanvasCoordinates } from '../helpers/canvasUtils/';
 import { DRAWING_COLOR } from '../helpers/drawingTools';
 import { handleClickDeselection, handleDocumentDeselection } from '../helpers/selectionUtils';
 
@@ -341,11 +341,8 @@ function Canvas({ activeTool, setActiveTool }) {
       const pointInCanvas = getCanvasCoordinates(canvasRef.current, e, zoomLevel, canvasOffset);
       const clickedAnyShape = shapes.some(shape => isPointInShape(pointInCanvas, shape));
       
-      // If we clicked on empty space, switch to select mode
-      if (!clickedAnyShape && !isDrawing && !isDragging) {
-        console.log("Clicked on empty space - switching to select mode");
-        setActiveTool('select');
-      }
+      // Don't automatically switch to select mode when clicking on empty space
+      // This allows the user to continue drawing with their selected tool
     }
     
     // Otherwise, proceed with normal click handling
@@ -544,18 +541,21 @@ function Canvas({ activeTool, setActiveTool }) {
       return;
     }
     
-    // For other tools, immediately switch to select tool
-    setActiveTool('select');
-    
-    // Only select the last shape if:
-    // 1. There are shapes
-    // 2. We haven't explicitly deselected (clicked empty space)
-    // 3. We haven't explicitly selected a different shape
-    if (shapes.length > 0 && !userDeselected.current) {
-      console.log("Auto-selecting last shape after mouse up");
-      setSelectedShape(shapes[shapes.length - 1]);
-    } else {
-      console.log("Respecting user selection/deselection after mouse up");
+    // Only switch to select tool if a shape was created
+    // Check if shapes array length increased after mouse up
+    if (shapes.length > prevShapesCountRef.current) {
+      setActiveTool('select');
+      
+      // Only select the last shape if:
+      // 1. There are shapes
+      // 2. We haven't explicitly deselected (clicked empty space)
+      // 3. We haven't explicitly selected a different shape
+      if (shapes.length > 0 && !userDeselected.current) {
+        console.log("Auto-selecting last shape after mouse up");
+        setSelectedShape(shapes[shapes.length - 1]);
+      } else {
+        console.log("Respecting user selection/deselection after mouse up");
+      }
     }
     
     // Reset the handling flag

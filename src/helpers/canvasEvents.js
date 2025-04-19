@@ -1,5 +1,5 @@
 // Canvas event handling utilities
-import { getCanvasCoordinates, clearCanvas, redrawShapes } from './canvasUtils';
+import { getCanvasCoordinates, clearCanvas, redrawShapes } from './canvasUtils/';
 import { 
   isPointInShape, 
   resizeShape, 
