@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './Navbar';
 import Canvas from './Canvas';
+import Spotify from '../helpers/Music/Spotify';
 
 const Main = () => {
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -83,7 +84,10 @@ const Main = () => {
 
   return (
     <div className="relative min-h-screen bg-white dark:bg-zinc-900 transition-colors duration-300">
-      <div className="fixed top-0 left-0 right-0 h-16 z-50">
+      {/* Spotify player */}
+      <Spotify className="select-none" />
+      
+      <div className="fixed top-2 left-0 right-0 z-40 ">
         <Navbar 
           isDarkMode={isDarkMode} 
           toggleTheme={toggleTheme} 

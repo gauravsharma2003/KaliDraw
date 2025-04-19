@@ -2,11 +2,10 @@
 export const DRAWING_COLOR = '#f54a00';
 export const LINE_WIDTH = 2;
 
+import { createText as createTextUtil } from './shapeUtils';
+
 // Drawing functions
 export const drawRectangle = (ctx, x, y, width, height, color = DRAWING_COLOR) => {
-  // For debugging
-  console.log('Drawing rectangle with:', { x, y, width, height, color });
-  
   // Skip invalid rectangles
   if (typeof x !== 'number' || typeof y !== 'number' || 
       typeof width !== 'number' || typeof height !== 'number') {
@@ -18,20 +17,13 @@ export const drawRectangle = (ctx, x, y, width, height, color = DRAWING_COLOR) =
   ctx.strokeStyle = color;
   ctx.lineWidth = LINE_WIDTH;
   
-  // Ensure the rectangle is visible by making sure it has a minimum size
-  const drawWidth = Math.max(width, 1);
-  const drawHeight = Math.max(height, 1);
-  
   // Draw the rectangle
-  ctx.strokeRect(x, y, drawWidth, drawHeight);
+  ctx.strokeRect(x, y, width, height);
   
   ctx.restore();
 };
 
 export const drawCircle = (ctx, x, y, radius, color = DRAWING_COLOR) => {
-  // For debugging
-  console.log('Drawing circle with:', { x, y, radius, color });
-  
   // Skip invalid circles
   if (typeof x !== 'number' || typeof y !== 'number' || 
       typeof radius !== 'number') {
@@ -43,17 +35,12 @@ export const drawCircle = (ctx, x, y, radius, color = DRAWING_COLOR) => {
   ctx.strokeStyle = color;
   ctx.lineWidth = LINE_WIDTH;
   
-  // Ensure minimum radius for visibility
-  const drawRadius = Math.max(radius, 1);
-  
   ctx.beginPath();
-  // Draw the arc with the correct center coordinates
-  // Note: x,y is the top-left corner of the circle's bounding box
-  // Center is at (x + radius, y + radius)
+  // Calculate center assuming x,y is top-left of bounding box
   ctx.arc(
-    x + drawRadius,
-    y + drawRadius,
-    drawRadius,
+    x + radius,
+    y + radius,
+    radius,
     0,
     Math.PI * 2
   );
@@ -101,45 +88,101 @@ export const drawText = (ctx, shape) => {
     height: shape.height || 40
   };
   
+  // Use defaults if alignment properties aren't set
+  const align = shape.align || 'center';
+  const verticalAlign = shape.verticalAlign || 'middle';
+  
+  // Draw text container for debugging if needed
+  // ctx.strokeStyle = 'rgba(0, 0, 255, 0.3)';
+  // ctx.strokeRect(box.x, box.y, box.width, box.height);
+  
   // Split text by newlines
   const lines = shape.text.split('\n');
-  const lineHeight = fontSize * 1.2;
+  
+  // Check if the text will fit within the box at the current font size
+  // If not, scale down the font size to fit
+  const checkWidth = () => {
+    let maxLineWidth = 0;
+    for (const line of lines) {
+      const metrics = ctx.measureText(line);
+      maxLineWidth = Math.max(maxLineWidth, metrics.width);
+    }
+    
+    // Include padding when checking if text fits
+    const paddingX = 20; // Left and right padding combined
+    return maxLineWidth + paddingX <= box.width;
+  };
+  
+  // Adjust font size if text doesn't fit width
+  let adjustedFontSize = fontSize;
+  ctx.font = `${fontStyle} ${fontWeight} ${adjustedFontSize}px ${fontFamily}`;
+  
+  // Reduce font size until text fits within box width
+  while (!checkWidth() && adjustedFontSize > 8) {
+    adjustedFontSize--;
+    ctx.font = `${fontStyle} ${fontWeight} ${adjustedFontSize}px ${fontFamily}`;
+  }
+  
+  // Recalculate line height based on possibly adjusted font size
+  const lineHeight = adjustedFontSize * 1.2;
+  
+  // Calculate if total text height fits in the box
+  const totalTextHeight = lines.length * lineHeight;
+  
+  // Further reduce font size if height doesn't fit
+  while (totalTextHeight > box.height && adjustedFontSize > 8) {
+    adjustedFontSize--;
+    ctx.font = `${fontStyle} ${fontWeight} ${adjustedFontSize}px ${fontFamily}`;
+    const newLineHeight = adjustedFontSize * 1.2;
+    const newTotalHeight = lines.length * newLineHeight;
+    
+    if (newTotalHeight <= box.height) {
+      break;
+    }
+  }
+  
+  // Final line height based on adjusted font size
+  const finalLineHeight = adjustedFontSize * 1.2;
+  const finalTextHeight = lines.length * finalLineHeight;
   
   // Calculate vertical alignment starting position
   let yPos;
-  const textHeight = lines.length * lineHeight;
+  const paddingTop = 5;
+  const paddingBottom = 5;
   
-  switch (shape.verticalAlign || 'middle') {
+  switch (verticalAlign) {
     case 'top':
-      yPos = box.y + (shape.textPadding?.top || 10);
+      yPos = box.y + paddingTop;
       break;
     case 'bottom':
-      yPos = box.y + box.height - textHeight + (shape.textPadding?.top || 10);
+      yPos = box.y + box.height - finalTextHeight - paddingBottom;
       break;
     case 'middle':
     default:
-      yPos = box.y + (box.height - textHeight) / 2 + (shape.textPadding?.top || 10);
+      yPos = box.y + (box.height - finalTextHeight) / 2;
       break;
   }
   
   // Draw each line of text with proper alignment
   lines.forEach((line, index) => {
     let xPos;
-    const lineY = yPos + (index * lineHeight);
+    const lineY = yPos + (index * finalLineHeight);
+    const paddingLeft = 10;
+    const paddingRight = 10;
     
     // Calculate horizontal alignment
-    switch (shape.align || 'left') {
+    switch (align) {
       case 'center':
         xPos = box.x + box.width / 2;
         ctx.textAlign = 'center';
         break;
       case 'right':
-        xPos = box.x + box.width - (shape.textPadding?.right || 10);
+        xPos = box.x + box.width - paddingRight;
         ctx.textAlign = 'right';
         break;
       case 'left':
       default:
-        xPos = box.x + (shape.textPadding?.left || 10);
+        xPos = box.x + paddingLeft;
         ctx.textAlign = 'left';
         break;
     }
@@ -154,7 +197,7 @@ export const drawText = (ctx, shape) => {
       
       // Calculate underline position based on alignment
       let underlineX;
-      switch (shape.align || 'left') {
+      switch (align) {
         case 'center':
           underlineX = xPos - lineWidth / 2;
           break;
@@ -168,10 +211,10 @@ export const drawText = (ctx, shape) => {
       }
       
       ctx.strokeStyle = shape.color || '#f54a00';
-      ctx.lineWidth = fontSize / 15; // Scale underline thickness with font size
+      ctx.lineWidth = adjustedFontSize / 15; // Scale underline thickness with font size
       ctx.beginPath();
-      ctx.moveTo(underlineX, lineY + fontSize / 10);
-      ctx.lineTo(underlineX + lineWidth, lineY + fontSize / 10);
+      ctx.moveTo(underlineX, lineY + adjustedFontSize * 0.8);
+      ctx.lineTo(underlineX + lineWidth, lineY + adjustedFontSize * 0.8);
       ctx.stroke();
     }
   });
@@ -205,7 +248,8 @@ export const createRectangle = (start, end) => {
   const rectWidth = Math.max(width, 1);
   const rectHeight = Math.max(height, 1);
   
-  console.log('Creating rectangle:', { x, y, width: rectWidth, height: rectHeight });
+  // Commented out to reduce flooding during preview
+  // console.log('Creating rectangle:', { x, y, width: rectWidth, height: rectHeight });
   
   return {
     type: 'rectangle',
@@ -261,30 +305,14 @@ export const createPencil = (points) => ({
 });
 
 export const createText = (text, x, y, width, height, fontSize = 16, color = DRAWING_COLOR) => {
-  // Generate ID for the text shape
-  const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-  
-  return {
-    type: 'text',
-    text: text || '',
-    x,
-    y,
-    width,
+  // Use the utility function from shapeUtils
+  return createTextUtil(text, x, y, fontSize, {
+    color, 
+    width, 
     height,
-    fontSize,
-    color,
-    align: 'left',
-    verticalAlign: 'top',
-    textPadding: {
-      top: 5,
-      left: 10
-    },
-    fontFamily: 'Arial',
-    fontWeight: 'normal',
-    fontStyle: 'normal',
-    textDecoration: 'none',
-    id
-  };
+    align: 'center',
+    verticalAlign: 'middle'
+  });
 };
 
 // Drawing handler functions
@@ -292,7 +320,8 @@ export const handleRectangleDrawing = (ctx, start, end, zoomLevel, canvasOffset)
   // Make sure we're working with valid coordinates
   if (!start || !end) return null;
   
-  console.log('Rectangle drawing:', { start, end, zoomLevel, canvasOffset });
+  // Commented out to reduce flooding during preview
+  // console.log('Rectangle drawing:', { start, end, zoomLevel, canvasOffset });
   
   ctx.save();
   ctx.scale(zoomLevel, zoomLevel);

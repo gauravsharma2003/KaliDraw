@@ -1,948 +1,586 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import * as drawingTools from '../helpers/drawingTools';
-import {
-  drawRectangle,
-  drawCircle,
-  drawPencil,
-  createRectangle,
-  createCircle,
-  createPencil,
-  createText,
-  handleRectangleDrawing,
-  handleCircleDrawing,
-  handlePencilDrawing,
-  handleTextDrawing
-} from '../helpers/drawingTools';
-import { getCanvasCoordinates, clearCanvas, redrawShapes, setupCanvas } from '../helpers/canvasUtils';
-import { isPointInShape, getResizeHandle, resizeShape, getShapeBoundingBox, getShapeResizeHandles, getCircleCenter, setTextAlignment, setTextVerticalAlignment, updateTextProperties, toggleBold, toggleItalic, toggleUnderline, setTextColor, updateTextStyle } from '../helpers/shapeManipulation';
-import { getCursorType, getCursorPosition, formatCursorPosition } from '../helpers/CursorHelper';
+import React, { useState, useEffect, useRef } from 'react';
 import ZoomControls from '../helpers/ZoomControls';
-import DirectTextInput from '../helpers/DirectTextInput';
-import { 
-  Plus, 
-  Minus, 
-  Type, 
-  AlignLeft, 
-  AlignCenter, 
-  AlignRight, 
-  AlignJustify,
-  Edit,
-  Bold,
-  Italic,
-  Underline,
-  ChevronUp,
-  ChevronDown
-} from 'lucide-react';
+import { getCursorType, formatCursorPosition } from '../helpers/CursorHelper';
+import { handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick, handleKeyDown } from '../helpers/canvasEvents';
+import { drawAll } from '../helpers/drawUtils';
+import { setupCanvas, getCanvasCoordinates } from '../helpers/canvasUtils';
+import { DRAWING_COLOR } from '../helpers/drawingTools';
+import { handleClickDeselection, handleDocumentDeselection } from '../helpers/selectionUtils';
 
-const DRAWING_COLOR = '#f54a00';
-const SELECTION_COLOR = '#0095ff';
+// Import from shapeUtils folder
+import {
+  isPointInShape,
+  getShapeBoundingBox,
+  getResizeHandle,
+  getShapeResizeHandles
+} from '../helpers/shapeUtils';
 
-// Helper function to draw resize handles
-const drawHandle = (ctx, x, y) => {
-  const HANDLE_SIZE = 8;
-  ctx.fillStyle = 'white';
-  ctx.strokeStyle = '#7e73ff';
-  ctx.lineWidth = 1;
-  
-  // Fill and stroke to create white square with blue border
-  ctx.fillRect(x - HANDLE_SIZE/2, y - HANDLE_SIZE/2, HANDLE_SIZE, HANDLE_SIZE);
-  ctx.strokeRect(x - HANDLE_SIZE/2, y - HANDLE_SIZE/2, HANDLE_SIZE, HANDLE_SIZE);
-};
+// Import from the textutils folder
+import {
+  drawActiveText,
+  drawTextSelectionPreview,
+  isClickOutsideTextArea,
+  startTextInputAtPosition,
+  handleTextInput as handleTextInputGlobal,
+  updateTextDimensions,
+  confirmTextInput as confirmTextInputGlobal,
+  handleEditTextClick as handleEditTextClickGlobal
+} from '../helpers/textutils';
 
 function Canvas({ activeTool, setActiveTool }) {
   const canvasRef = useRef(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [startPoint, setStartPoint] = useState(null);
-  const [shapes, setShapes] = useState([]);
-  const [undoHistory, setUndoHistory] = useState([]);
-  const [currentPoints, setCurrentPoints] = useState([]);
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const [textPosition, setTextPosition] = useState(null);
-  const [selectedShape, setSelectedShape] = useState(null);
-  const [resizeHandle, setResizeHandle] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isMovingShape, setIsMovingShape] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
-  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
-  
-  // Store original positions to prevent jitter
   const originalShapePos = useRef(null);
   const originalCanvasOffset = useRef(null);
   const resizeStartPoint = useRef(null);
+  const userDeselected = useRef(false);
+  const isHandlingMouseRelease = useRef(false);
+  const prevShapesCountRef = useRef(0);
 
-  // Direct text editing state
+  const [shapes, setShapes] = useState([]);
+  const [selectedShape, setSelectedShape] = useState(null);
+  const [resizeHandle, setResizeHandle] = useState(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+
   const [isTypingText, setIsTypingText] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [isEditingText, setIsEditingText] = useState(false);
+  const [textPosition, setTextPosition] = useState(null);
 
-  // Add touch gesture states
-  const [touchPoints, setTouchPoints] = useState([]);
-  const lastTouchDistance = useRef(null);
-  const lastTouchCenter = useRef(null);
-  const isTouchGesture = useRef(false);
+  const [undoHistory, setUndoHistory] = useState([]);
 
-  // New state for text toolbar
-  const [showTextToolbar, setShowTextToolbar] = useState(false);
-  const [textToolbarPosition, setTextToolbarPosition] = useState({ x: 0, y: 0 });
+  // Drawing and drag state
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [startPoint, setStartPoint] = useState(null);
+  const [currentPoints, setCurrentPoints] = useState([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isMovingShape, setIsMovingShape] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Add animation frame update for cursor blinking when typing
-  useEffect(() => {
-    if (!isTypingText) return;
-    
-    // Set up animation frame for cursor blinking
-    let animationFrameId;
-    
-    const updateCursor = () => {
-      // Force a re-render to update the blinking cursor
-      setShapes(prev => [...prev]);
-      animationFrameId = requestAnimationFrame(updateCursor);
-    };
-    
-    // Start the animation loop
-    animationFrameId = requestAnimationFrame(updateCursor);
-    
-    // Clean up
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-    };
-  }, [isTypingText]);
-
-  // Define mouse handlers first so we can use them in touch handlers
-  const handleMouseDown = (e) => {
-    if (!canvasRef.current) return;
-    
-    const canvas = canvasRef.current;
-    // Get accurate canvas coordinates accounting for zoom and offset
-    const point = getCanvasCoordinates(canvas, e, zoomLevel, canvasOffset);
-    setCursorPosition(point);
-    
-    // If we're currently typing and click somewhere else, confirm the text
-    if (isTypingText) {
-      confirmTextInput();
-      
-      // Don't continue with the current click if we just confirmed text
-      // This prevents unintended actions immediately after confirming text
-      return;
-    }
-
-    // Rest of the function for clicking shapes, etc.
-    console.log('Mouse down', { activeTool, point, canvasOffset, zoomLevel });
-
-    if (activeTool === 'select') {
-      // Store original positions to prevent jitter
-      if (selectedShape) {
-        originalShapePos.current = { ...selectedShape };
-      }
-      originalCanvasOffset.current = { ...canvasOffset };
-      resizeStartPoint.current = point;
-      
-      // Always check for resize handles first if a shape is selected
-      if (selectedShape) {
-        const box = getShapeBoundingBox(selectedShape);
-        const HANDLE_SIZE = 12; // Slightly larger hit area than visual size
-
-        // Check if clicking on any handle
-        const handles = [
-          // Corner handles
-          { name: 'topLeft', x: box.x, y: box.y },
-          { name: 'topRight', x: box.x + box.width, y: box.y },
-          { name: 'bottomLeft', x: box.x, y: box.y + box.height },
-          { name: 'bottomRight', x: box.x + box.width, y: box.y + box.height },
-          
-          // Middle handles on each side (external only)
-          { name: 'topCenter', x: box.x + box.width/2, y: box.y },
-          { name: 'middleRight', x: box.x + box.width, y: box.y + box.height/2 },
-          { name: 'bottomCenter', x: box.x + box.width/2, y: box.y + box.height },
-          { name: 'middleLeft', x: box.x, y: box.y + box.height/2 }
-        ];
-
-        for (const handle of handles) {
-          if (
-            Math.abs(point.x - handle.x) <= HANDLE_SIZE/2 &&
-            Math.abs(point.y - handle.y) <= HANDLE_SIZE/2
-          ) {
-            setResizeHandle(handle.name);
-            setIsDragging(true);
-            setIsMovingShape(false);
-            return;
-          }
-        }
-      }
-      
-      // Then check if clicking on any shape
-      const clickedShape = shapes.find(shape => isPointInShape(point, shape));
-      
-      if (clickedShape) {
-        // Clicked inside a shape - select it and prepare to move it
-        setSelectedShape(clickedShape);
-        originalShapePos.current = { ...clickedShape };
-        
-        setIsMovingShape(true);
-        setIsDragging(true);
-        setDragStart(point);
-      } else {
-        // Clicked on empty space - pan the canvas
-        setSelectedShape(null);
-        setIsMovingShape(false);
-        setIsDragging(true);
-        setDragStart(point);
-      }
-      return;
-    } else {
-      // If switching to drawing mode, deselect any selected shape
-      setSelectedShape(null);
-      setIsMovingShape(false);
-    }
-
-    // For text tool, start input at click location
-    if (activeTool === 'text') {
-      setStartPoint(point);
-      setIsDrawing(true);
-      return;
-    }
-
-    setIsDrawing(true);
-    setStartPoint(point);
-    if (activeTool === 'pencil') {
-      setCurrentPoints([point]);
-    }
-  };
-
-  // Start text input at a specific position
-  const startTextInputAtPosition = (position) => {
-    // Store exact cursor position without adjustments
-    setTextPosition(position);
-    setIsTypingText(true);
-    setTextInput('');
-    
-    console.log('Starting text input at position:', position);
-  };
-
-  // Handle text input from keyboard
+  // Define text handling functions at the top before they're used
   const handleTextInput = (e) => {
-    if (!isTypingText) return;
-    
-    // Use the DirectTextInput component to handle key input
-    if (e.key === 'Escape') {
-      // If editing an existing text, restore it
-      if (isEditingText && originalShapePos.current) {
-        setShapes(prev => [...prev, originalShapePos.current]);
-      }
-      
-      setIsTypingText(false);
-      setIsEditingText(false);
-      setTextInput('');
-      setTextPosition(null);
-      return;
-    }
-    
-    if (e.key === 'Enter' && !e.shiftKey) {
-      confirmTextInput();
-      return;
-    }
-    
-    // Handle other key inputs with our helper
-    DirectTextInput.handleKeyInput(e, textInput, setTextInput);
-  };
-
-  // Confirm text input and create a text shape
-  const confirmTextInput = () => {
-    if (textInput.trim() && textPosition) {
-      setUndoHistory(prev => [...prev, [...shapes]]);
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      // Recalculate dimensions based on current text
-      const dims = DirectTextInput.calculateTextDimensions(ctx, textInput);
-      console.log('Creating text at position:', textPosition.x, textPosition.y, 'with dims:', dims);
-      const newTextShape = {
-        ...createText(textInput, textPosition.x, textPosition.y, dims.width, dims.height, 16, DRAWING_COLOR)
-      };
-      setShapes(prev => [...prev, newTextShape]);
-      setSelectedShape(newTextShape);
-      setActiveTool('select');
-    }
-    setIsTypingText(false);
-    setTextInput('');
-    setTextPosition(null);
-  };
-  
-  // Handle edit text click function for double-clicking text
-  const handleEditTextClick = () => {
-    if (!selectedShape || selectedShape.type !== 'text') return;
-    
-    setTextPosition({
-      x: selectedShape.x,
-      y: selectedShape.y
-    });
-    setTextInput(selectedShape.text);
-    setIsTypingText(true);
-    setIsEditingText(true);
-    
-    // Store original shape for restoration if needed
-    originalShapePos.current = { ...selectedShape };
-    
-    // Delete the original text shape while editing
-    setShapes(prev => prev.filter(shape => shape !== selectedShape));
-  };
-
-  // Show text toolbar when text is selected
-  useEffect(() => {
-    if (selectedShape && selectedShape.type === 'text') {
-      const box = getShapeBoundingBox(selectedShape);
-      setTextToolbarPosition({
-        x: box.x + box.width / 2,
-        y: box.y - 40 // Position above the text
-      });
-      setShowTextToolbar(true);
-    } else {
-      setShowTextToolbar(false);
-    }
-  }, [selectedShape]);
-
-  // Focus textarea when editing text
-  useEffect(() => {
-    if (isEditingText) {
-      const textarea = document.getElementById('text-editor');
-      if (textarea) {
-        textarea.focus();
-      }
-    }
-  }, [isEditingText]);
-
-  // Handle double-click to edit text
-  const handleDoubleClick = (e) => {
-    if (activeTool !== 'select') return;
-    
-    const canvas = canvasRef.current;
-    const point = getCanvasCoordinates(canvas, e, zoomLevel, canvasOffset);
-    
-    // Check if clicking on text shape
-    const textShape = shapes.find(shape => 
-      shape.type === 'text' && isPointInShape(point, shape)
+    handleTextInputGlobal(
+      e,
+      isTypingText,
+      isEditingText,
+      originalShapePos,
+      textInput,
+      setTextInput,
+      setIsTypingText,
+      setIsEditingText,
+      setShapes
     );
     
-    if (textShape) {
-      setSelectedShape(textShape);
-      handleEditTextClick();
+    // If we're typing, update the text dimensions to fit the content
+    if (isTypingText && textPosition && canvasRef.current) {
+      updateTextDimensions(
+        canvasRef,
+        textInput,
+        textPosition,
+        setTextPosition
+      );
     }
   };
 
-  // Handle text alignment change
-  const handleTextAlign = (alignment) => {
-    if (!selectedShape || selectedShape.type !== 'text') return;
+  const confirmTextInput = (switchToSelectMode = false) => {
+    confirmTextInputGlobal(
+      canvasRef, 
+      textInput, 
+      textPosition, 
+      shapes, 
+      setShapes, 
+      setSelectedShape, 
+      setUndoHistory,
+      setIsTypingText,
+      setIsEditingText,
+      setActiveTool
+    );
     
-    // Save to undo history
-    setUndoHistory(prev => [...prev, [...shapes]]);
-    
-    // Update text alignment
-    const updatedShape = setTextAlignment(selectedShape, alignment);
-    
-    // Update shapes array
-    setShapes(prev => prev.map(shape => 
-      shape === selectedShape ? updatedShape : shape
-    ));
-    
-    // Update selected shape
-    setSelectedShape(updatedShape);
+    // Only switch to select mode if explicitly requested
+    if (switchToSelectMode) {
+      setActiveTool('select');
+    }
   };
 
-  // Handle vertical alignment change
-  const handleVerticalAlign = (alignment) => {
-    if (!selectedShape || selectedShape.type !== 'text') return;
-    
-    // Save to undo history
-    setUndoHistory(prev => [...prev, [...shapes]]);
-    
-    // Update vertical alignment
-    const updatedShape = setTextVerticalAlignment(selectedShape, alignment);
-    
-    // Update shapes array
-    setShapes(prev => prev.map(shape => 
-      shape === selectedShape ? updatedShape : shape
-    ));
-    
-    // Update selected shape
-    setSelectedShape(updatedShape);
+  const handleEditTextClick = () => {
+    handleEditTextClickGlobal(
+      selectedShape, 
+      setTextPosition, 
+      setTextInput, 
+      setIsTypingText, 
+      setIsEditingText, 
+      originalShapePos, 
+      setShapes
+    );
   };
 
-  // Handle font size change
-  const handleFontSizeChange = (increase) => {
-    if (!selectedShape || selectedShape.type !== 'text') return;
-    
-    // Save to undo history
-    setUndoHistory(prev => [...prev, [...shapes]]);
-    
-    // Calculate new font size (min 8, max 72)
-    const newSize = increase ? 
-      Math.min(selectedShape.fontSize + 2, 72) : 
-      Math.max(selectedShape.fontSize - 2, 8);
-    
-    // Update font size
-    const updatedShape = updateTextProperties(selectedShape, { fontSize: newSize });
-    
-    // Update shapes array
-    setShapes(prev => prev.map(shape => 
-      shape === selectedShape ? updatedShape : shape
-    ));
-    
-    // Update selected shape
-    setSelectedShape(updatedShape);
+  const setSelectedShapeWithTracking = (shape) => {
+    if (shape === null) {
+      userDeselected.current = true;
+      console.log("User explicitly deselected a shape");
+    } else if (shape) {
+      console.log(`User explicitly selected shape: ${shape.id}`);
+      userDeselected.current = true;
+    }
+    setSelectedShape(shape);
   };
 
-  // Handle text style toggle (bold, italic, underline)
-  const handleTextStyleToggle = (styleType) => {
-    if (!selectedShape || selectedShape.type !== 'text') return;
-    
-    // Save to undo history
-    setUndoHistory(prev => [...prev, [...shapes]]);
-    
-    let updatedShape;
-    
-    // Update the style based on the type
-    switch (styleType) {
-      case 'bold':
-        updatedShape = toggleBold(selectedShape);
-        break;
-      case 'italic':
-        updatedShape = toggleItalic(selectedShape);
-        break;
-      case 'underline':
-        updatedShape = toggleUnderline(selectedShape);
-        break;
-      default:
-        return;
+  const ctx = {
+    canvasRef,
+    activeTool,
+    setActiveTool,
+    shapes,
+    setShapes,
+    selectedShape,
+    setSelectedShape: setSelectedShapeWithTracking,
+    resizeHandle,
+    setResizeHandle,
+    zoomLevel,
+    setZoomLevel,
+    canvasOffset,
+    setCanvasOffset,
+    cursorPosition,
+    setCursorPosition,
+    isTypingText,
+    setIsTypingText,
+    textInput,
+    setTextInput,
+    isEditingText,
+    setIsEditingText,
+    textPosition,
+    setTextPosition,
+    undoHistory,
+    setUndoHistory,
+    isDrawing,
+    setIsDrawing,
+    startPoint,
+    setStartPoint,
+    currentPoints,
+    setCurrentPoints,
+    isDragging,
+    setIsDragging,
+    isMovingShape,
+    setIsMovingShape,
+    dragStart,
+    setDragStart,
+    originalRefs: { originalShapePos, originalCanvasOffset, resizeStartPoint },
+    startTextInputAtPosition,
+    handleTextInput,
+    confirmTextInput,
+    handleEditTextClick
+  };
+
+  const handleKeyDownWrapper = (e) => {
+    // If Enter is pressed while typing text (and not with Shift key),
+    // confirm the text and ensure it gets selected
+    if (e.key === 'Enter' && !e.shiftKey && isTypingText) {
+      e.preventDefault();
+      // Confirm text and explicitly switch to select mode
+      confirmTextInput(true);
+      return;
     }
     
-    // Update shapes array
-    setShapes(prev => prev.map(shape => 
-      shape === selectedShape ? updatedShape : shape
-    ));
+    // First try to handle text input
+    const textHandled = handleTextInput(e);
     
-    // Update selected shape
-    setSelectedShape(updatedShape);
+    // If not handled by text input, pass to general key handler
+    if (!textHandled) {
+      handleKeyDown(e, ctx);
+    }
   };
 
-  const handleMouseMove = useCallback((e) => {
+  // Setup canvas size and DPI
+  useEffect(() => {
     if (!canvasRef.current) return;
-    
-    const canvas = canvasRef.current;
-    const point = getCanvasCoordinates(canvas, e, zoomLevel, canvasOffset);
-    setCursorPosition(point);
-    
-    if (!isDrawing && !isDragging) return;
-    
-    const ctx = canvas.getContext('2d');
+    const cleanup = setupCanvas(canvasRef.current);
+    return cleanup;
+  }, []);
 
-    if (activeTool === 'select' && isDragging) {
-      if (selectedShape && resizeHandle && resizeStartPoint.current) {
-        // Save state before first resize
-        if (!originalShapePos.current.resizing) {
-          setUndoHistory(prev => [...prev, [...shapes]]);
-          originalShapePos.current.resizing = true;
-        }
+  useEffect(() => {
+    const context2d = canvasRef.current?.getContext('2d');
+    if (context2d) {
+      console.log("REDRAW TRIGGERED: shapes:", shapes.length, "selectedShape:", selectedShape?.id);
+      drawAll(context2d, canvasRef, shapes, selectedShape, zoomLevel, canvasOffset, isTypingText, textInput, textPosition, isEditingText, originalShapePos);
+    }
+  }, [shapes, selectedShape, resizeHandle, zoomLevel, canvasOffset, isTypingText, textInput, textPosition, isEditingText]);
+
+  useEffect(() => {
+    console.log("Shapes changed:", shapes.length, shapes);
+  }, [shapes]);
+
+  useEffect(() => {
+    // No need to reset shapes or other state when tool changes
+    // We just need to update cursor and possibly clear any temporary interaction state
+    if (isDrawing) {
+      setIsDrawing(false);
+    }
+    
+    // If we're editing text and switch tools, confirm the text first
+    if (isTypingText && activeTool !== 'text') {
+      confirmTextInput(true); // Set switchToSelectMode=true when changing tools
+    }
+    
+    // If we switch to text tool, make sure text input is reset
+    if (activeTool === 'text' && !isTypingText) {
+      setTextInput('');
+    }
+    
+    // Log tool change without affecting shapes array
+    console.log("Tool changed to:", activeTool);
+    
+    // Only auto-select if not explicitly deselected and not handling mouse release
+    if (activeTool === 'select' && shapes.length > 0 && !userDeselected.current && !isHandlingMouseRelease.current) {
+      setSelectedShape(shapes[shapes.length - 1]);
+    }
+  }, [activeTool, isDrawing, setIsDrawing, isTypingText, shapes, setSelectedShape, setTextInput]);
+
+  // Handle shape selection when shapes array changes
+  useEffect(() => {
+    if (shapes.length > 0 && !userDeselected.current && !isHandlingMouseRelease.current) {
+      console.log("Auto-selecting shape after shapes array changed");
+      setSelectedShape(shapes[shapes.length - 1]);
+      
+      // Don't switch to select mode if in text mode and actively typing
+      if (!isTypingText || activeTool !== 'text') {
+        setActiveTool('select');
+      }
+    } else if (userDeselected.current) {
+      console.log("Not auto-selecting - user has made explicit selection/deselection");
+    }
+  }, [shapes, setActiveTool, activeTool, isTypingText]);
+
+  // Add effect to reset the deselected flag when new shapes are added
+  useEffect(() => {
+    // Check if we added a new shape
+    if (shapes.length > prevShapesCountRef.current) {
+      console.log("New shape added - resetting deselection flag");
+      userDeselected.current = false;
+    }
+    
+    // Update our shape count tracker
+    prevShapesCountRef.current = shapes.length;
+  }, [shapes]);
+
+  // Add mousedown handler that also checks for clicks outside text input
+  const handleMouseDownWithTextCheck = (e) => {
+    // Check if clicking outside text input area using the dedicated function
+    if (isTypingText && textPosition && canvasRef.current) {
+      if (isClickOutsideTextArea(e, canvasRef.current, textPosition, zoomLevel, canvasOffset, isTypingText)) {
+        console.log("Click outside text area detected - confirming text and switching to select mode");
         
-        // Resizing shape with handle - use fixed starting point to avoid jitter
-        console.log('Resizing with handle:', resizeHandle);
+        // Store current text input to find the new shape after it's created
+        const currentText = textInput;
         
-        // Use the improved resizeShape function from shapeManipulation.js
-        let updatedShape = resizeShape(
-          selectedShape, 
-          resizeHandle, 
-          point, 
-          resizeStartPoint.current
+        // Immediately switch to select mode before confirming text
+        setActiveTool('select');
+        
+        // Confirm text and explicitly switch to select mode
+        confirmTextInput(true);
+        
+        // Immediately process the click to handle selection/deselection
+        const pointInCanvas = getCanvasCoordinates(canvasRef.current, e, zoomLevel, canvasOffset);
+        
+        // Find the most recently added text shape with our content
+        const textShape = shapes.find(shape => 
+          shape.type === 'text' && 
+          shape.text === currentText
         );
         
-        // Update shapes list
-        setShapes(prev => prev.map(shape => 
-          shape === selectedShape ? updatedShape : shape
-        ));
-        
-        setSelectedShape(updatedShape);
-        return;
-      }
-      
-      if (isMovingShape && selectedShape) {
-        // Moving a selected shape - use original position to avoid jitter
-        if (!originalShapePos.current) return;
-        
-        const dx = point.x - dragStart.x;
-        const dy = point.y - dragStart.y;
-        
-        let updatedShape = { ...selectedShape };
-        
-        // Update position based on shape type
-        if (selectedShape.type === 'pencil') {
-          // Move all points in the pencil
-          updatedShape.points = selectedShape.points.map(p => ({
-            x: originalShapePos.current.points ? 
-              p.x + dx : p.x,
-            y: originalShapePos.current.points ? 
-              p.y + dy : p.y
-          }));
+        if (textShape) {
+          // Select the text shape we just created
+          setSelectedShape(textShape);
         } else {
-          // For rectangles, circles, and text, just update x and y
-          updatedShape.x = originalShapePos.current.x + dx;
-          updatedShape.y = originalShapePos.current.y + dy;
+          // Check if click is on any shape
+          const clickedShape = shapes.find(shape => isPointInShape(pointInCanvas, shape));
+          
+          if (clickedShape) {
+            // Select the clicked shape
+            setSelectedShape(clickedShape);
+          } else {
+            // Deselect if clicked on empty space
+            setSelectedShape(null);
+          }
         }
         
-        // Update shapes list
-        setShapes(prev => prev.map(shape => 
-          shape === selectedShape ? updatedShape : shape
-        ));
-        
-        setSelectedShape(updatedShape);
-        return;
+        // Stop event propagation
+        e.stopPropagation();
+        e.preventDefault();
+        return true;
       }
       
-      // Handle canvas panning
-      if (!isMovingShape) {
-        const dx = point.x - dragStart.x;
-        const dy = point.y - dragStart.y;
-        
-        // Calculate new offset based on original position and zoom
-        const newOffsetX = originalCanvasOffset.current.x + dx; 
-        const newOffsetY = originalCanvasOffset.current.y + dy;
-        
-        setCanvasOffset({ x: newOffsetX, y: newOffsetY });
-        return;
+      // If we're inside the text area and typing, just continue editing
+      if (activeTool === 'text') {
+        e.stopPropagation();
+        return false;
       }
-    }
-
-    if (activeTool === 'text' && isDrawing) {
-      clearCanvas(canvas);
-      redrawShapes(ctx, shapes, zoomLevel, canvasOffset);
-      const x = Math.min(startPoint.x, point.x);
-      const y = Math.min(startPoint.y, point.y);
-      const width = Math.max(Math.abs(point.x - startPoint.x), 10);
-      const height = Math.max(Math.abs(point.y - startPoint.y), 10);
-      ctx.save();
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.setLineDash([4,2]);
-      ctx.strokeRect(x, y, width, height);
-      ctx.restore();
-      return;
-    }
-
-    if (!isDrawing) return;
-    
-    // Ensure we have a valid start point
-    if (!startPoint) {
-      console.warn('No start point for drawing');
-      return;
-    }
-    
-    console.log('Drawing preview', { 
-      activeTool, 
-      start: startPoint, 
-      end: point, 
-      zoomLevel, 
-      offset: canvasOffset 
-    });
-
-    // Clear and redraw all existing shapes
-    clearCanvas(canvas);
-    redrawShapes(ctx, shapes, zoomLevel, canvasOffset);
-
-    // Draw the current shape being created
-    if (activeTool === 'pencil') {
-      setCurrentPoints(prev => [...prev, point]);
-      const previewShape = { type: 'pencil', points: [...currentPoints, point], color: DRAWING_COLOR };
-      drawPencil(ctx, previewShape.points, previewShape.color);
-    } else {
-      // Get the appropriate drawing handler based on active tool
-      let drawHandler;
-      switch (activeTool) {
-        case 'rectangle':
-          drawHandler = handleRectangleDrawing;
-          break;
-        case 'circle':
-          drawHandler = handleCircleDrawing;
-          break;
-        default:
-          drawHandler = null;
-      }
+    } 
+    // If text tool is selected and not typing yet, start a new text at the clicked position
+    else if (activeTool === 'text' && !isTypingText) {
+      // Get cursor position
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoomLevel - canvasOffset.x;
+      const y = (e.clientY - rect.top) / zoomLevel - canvasOffset.y;
       
-      if (drawHandler) {
-        try {
-          // Make sure end point is valid
-          const endPoint = point || { x: startPoint.x + 10, y: startPoint.y + 10 };
-          drawHandler(ctx, startPoint, endPoint, zoomLevel, canvasOffset);
-        } catch (error) {
-          console.error('Error in drawing handler:', error);
-        }
-      }
+      // Clear any previous text input
+      setTextInput('');
+      
+      // Start new text input at cursor position
+      startTextInputAtPosition(
+        { x, y },
+        setTextPosition,
+        setIsTypingText,
+        setTextInput
+      );
+      
+      e.stopPropagation();
+      return true;
     }
-  }, [shapes, selectedShape, zoomLevel, canvasOffset, isDrawing, isDragging, startPoint, currentPoints, activeTool]);
-
-  const handleMouseUp = (e) => {
-    if (!canvasRef.current) return;
-    
-    console.log('Mouse up', { activeTool, isDrawing, isDragging });
-    
-    // Reset stored original positions
-    originalShapePos.current = null;
-    originalCanvasOffset.current = null;
-    resizeStartPoint.current = null;
-    
-    if (activeTool === 'select') {
-      setIsDragging(false);
-      setResizeHandle(null);
-      setIsMovingShape(false);
-      return;
-    }
-
-    if (!isDrawing) return;
-
-    // Save state before adding new shape
-    setUndoHistory(prev => [...prev, [...shapes]]);
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const point = getCanvasCoordinates(canvas, e, zoomLevel, canvasOffset);
-
-    let newShape;
-    
-    if (activeTool === 'pencil') {
-      // Ensure we have at least 2 points for a pencil stroke
-      if (currentPoints.length < 1) {
-        setIsDrawing(false);
-        setCurrentPoints([]);
-        return;
-      }
+    // If we're using a tool other than select, clicking outside should switch to select
+    else if (activeTool !== 'select' && activeTool !== 'text' && !isTypingText) {
+      const pointInCanvas = getCanvasCoordinates(canvasRef.current, e, zoomLevel, canvasOffset);
+      const clickedAnyShape = shapes.some(shape => isPointInShape(pointInCanvas, shape));
       
-      newShape = handlePencilDrawing(ctx, [...currentPoints, point], zoomLevel, canvasOffset);
-      console.log('Adding pencil shape with points:', newShape.points.length);
-      
-      if (newShape && newShape.points && newShape.points.length > 0) {
-        setShapes(prev => [...prev, newShape]);
-      }
-      
-      setCurrentPoints([]);
-    } else {
-      // Get the appropriate drawing handler based on active tool
-      let drawHandler;
-      switch (activeTool) {
-        case 'rectangle':
-          drawHandler = handleRectangleDrawing;
-          break;
-        case 'circle':
-          drawHandler = handleCircleDrawing;
-          break;
-        default:
-          drawHandler = null;
-      }
-      
-      if (drawHandler && startPoint) {
-        // Make sure we have a valid end point
-        const endPoint = point || { x: startPoint.x + 10, y: startPoint.y + 10 };
-        newShape = drawHandler(ctx, startPoint, endPoint, zoomLevel, canvasOffset);
-        
-        console.log('Created shape:', newShape);
-        
-        // Only add the shape if it's valid
-        if (newShape) {
-          setShapes(prevShapes => {
-            const updatedShapes = [...prevShapes, newShape];
-            console.log('Updated shapes array:', updatedShapes.length);
-            return updatedShapes;
-          });
-        }
-      }
-    }
-
-    if (newShape) {
-      setSelectedShape(newShape);
-      if (setActiveTool) {
+      // If we clicked on empty space, switch to select mode
+      if (!clickedAnyShape && !isDrawing && !isDragging) {
+        console.log("Clicked on empty space - switching to select mode");
         setActiveTool('select');
       }
     }
-
-    if (activeTool === 'text' && isDrawing) {
-      const endPoint = point;
-      const x = Math.min(startPoint.x, endPoint.x);
-      const y = Math.min(startPoint.y, endPoint.y);
-      const width = Math.max(Math.abs(endPoint.x - startPoint.x), 10);
-      const height = Math.max(Math.abs(endPoint.y - startPoint.y), 10);
-      setTextPosition({ x, y, width, height });
-      setIsTypingText(true);
-      setIsDrawing(false);
-      setStartPoint(null);
-      return;
-    }
-
-    setIsDrawing(false);
-    setStartPoint(null);
+    
+    // Otherwise, proceed with normal click handling
+    handleClickDeselect(e);
+    return true;
   };
 
-  // Handle zooming with mouse wheel
-  const handleWheel = (e) => {
-    // Prevent default to avoid page scrolling
-    e.preventDefault();
-    
-    // Get the cursor position relative to the canvas
-    const rect = canvasRef.current.getBoundingClientRect();
-    const cursorX = (e.clientX - rect.left) / zoomLevel;
-    const cursorY = (e.clientY - rect.top) / zoomLevel;
-    
-    // Determine zoom direction (in or out)
-    const zoomDirection = e.deltaY < 0 ? 1 : -1;
-    
-    // Calculate new zoom level
-    const zoomFactor = 0.05; // How much to zoom per scroll
-    const newZoomLevel = Math.min(Math.max(zoomLevel + (zoomDirection * zoomFactor), 0.1), 5);
-    
-    // Adjust canvas offset to zoom centered on cursor
-    if (newZoomLevel !== zoomLevel) {
-      const newOffsetX = canvasOffset.x - (cursorX * (newZoomLevel - zoomLevel));
-      const newOffsetY = canvasOffset.y - (cursorY * (newZoomLevel - zoomLevel));
-      
-      setZoomLevel(newZoomLevel);
-      setCanvasOffset({ x: newOffsetX, y: newOffsetY });
-    }
-  };
-
-  // Setup canvas
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    
-    const cleanup = setupCanvas(canvasRef.current);
-    
-    console.log('Canvas initialized', {
-      width: canvasRef.current.width,
-      height: canvasRef.current.height
-    });
-    
-    return cleanup;
-  }, []);
-  
-  // Add wheel event for zooming with trackpad
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    
-    const canvas = canvasRef.current;
-    canvas.addEventListener('wheel', handleWheel, { passive: false });
-    
-    return () => {
-      canvas.removeEventListener('wheel', handleWheel);
-    };
-  }, [zoomLevel, canvasOffset]);
-  
-  // Add keyboard listener for deletion and undo
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Handle direct text input when in text mode
-      if (isTypingText) {
-        handleTextInput(e);
-        e.preventDefault(); // Prevent default browser behavior
-        return;
-      }
-      
-      // Skip if we're typing text
-      if (isTypingText) {
-        return;
-      }
-      
-      // Delete key to remove selected shape
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShape) {
-        // Save current state to history before deleting
-        setUndoHistory(prev => [...prev, [...shapes]]);
-        
-        setShapes(prev => prev.filter(shape => shape !== selectedShape));
-        setSelectedShape(null);
-        return;
-      }
-      
-      // Ctrl+Z or Command+Z to undo
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        handleUndo();
-        return;
-      }
-      
-      // Space to cycle through tools
-      if (e.key === ' ' && !isTypingText) {
-        e.preventDefault();
-        // Cycle through tools with spacebar
-        const tools = ['select', 'rectangle', 'circle', 'pencil', 'text'];
-        const currentIndex = tools.indexOf(activeTool);
-        const nextIndex = (currentIndex + 1) % tools.length;
-        setActiveTool(tools[nextIndex]);
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedShape, shapes, undoHistory, isTypingText, activeTool, isEditingText, textInput]);
-
-  // Handle undo action
-  const handleUndo = () => {
-    if (undoHistory.length === 0) return;
-    
-    const previousState = undoHistory[undoHistory.length - 1];
-    setShapes([...previousState]);
-    setUndoHistory(prev => prev.slice(0, -1));
-    
-    // Clear selection since the shape might no longer exist
-    setSelectedShape(null);
-  };
-
-  // Draw text on canvas
-  const drawText = (ctx, shape) => {
-    if (!shape || !shape.text) return;
-    
-    // Use the imported drawText function directly
-    drawingTools.drawText(ctx, shape);
-  };
-
-  // Redraw shapes when they change
-  useEffect(() => {
+  // Add a preview drawing function that properly handles text input
+  const drawPreview = (e) => {
     if (!canvasRef.current) return;
     
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     
-    // Debug the shapes array
-    console.log('Redrawing shapes:', shapes.length);
+    // Get current mouse position
+    const rect = canvas.getBoundingClientRect();
+    const cssX = e.clientX - rect.left;
+    const cssY = e.clientY - rect.top;
+    const x = cssX / zoomLevel - canvasOffset.x;
+    const y = cssY / zoomLevel - canvasOffset.y;
     
-    clearCanvas(canvas);
+    // Clear canvas and redraw existing shapes
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Apply transformations for all drawing
-    ctx.save();
-    ctx.scale(zoomLevel, zoomLevel);
-    ctx.translate(canvasOffset.x, canvasOffset.y);
+    // Get context for drawing
+    const context2d = canvas.getContext('2d');
     
-    // Draw all shapes
-    shapes.forEach((shape, index) => {
-      if (!shape) {
-        console.warn('Undefined shape at index', index);
-        return;
-      }
+    // Don't draw active text in the main drawAll call
+    // We'll draw it separately to avoid double rendering
+    const shouldDrawActiveText = !(activeTool === 'text' && isTypingText);
+    drawAll(
+      context2d, 
+      canvasRef, 
+      shapes, 
+      selectedShape, 
+      zoomLevel, 
+      canvasOffset, 
+      shouldDrawActiveText ? isTypingText : false, 
+      shouldDrawActiveText ? textInput : '', 
+      shouldDrawActiveText ? textPosition : null, 
+      shouldDrawActiveText ? isEditingText : false, 
+      originalShapePos
+    );
+    
+    // If we're typing text, draw it after everything else to avoid double rendering
+    if (activeTool === 'text' && isTypingText && textPosition) {
+      // Use the dedicated function from textutils
+      drawActiveText(
+        ctx,
+        textInput,
+        textPosition,
+        originalShapePos,
+        isEditingText,
+        zoomLevel,
+        canvasOffset
+      );
+    }
+    
+    // Only draw shape preview if we're not typing text
+    if (!isTypingText && startPoint) {
+      // Draw preview shape with bold orange styling
+      ctx.save();
+      ctx.scale(zoomLevel, zoomLevel);
+      ctx.translate(canvasOffset.x, canvasOffset.y);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#ff6600';
       
-      console.log('Drawing shape:', shape.type, index, 'color:', shape.color);
-      
-      switch (shape.type) {
+      switch(activeTool) {
         case 'rectangle':
-          drawRectangle(ctx, shape.x, shape.y, shape.width, shape.height, shape.color);
+          // Draw rectangle preview
+          const rectX = Math.min(startPoint.x, x);
+          const rectY = Math.min(startPoint.y, y);
+          const width = Math.abs(x - startPoint.x);
+          const height = Math.abs(y - startPoint.y);
+          ctx.strokeRect(rectX, rectY, width, height);
           break;
+          
         case 'circle':
-          drawCircle(ctx, shape.x, shape.y, shape.radius, shape.color);
+          // Draw circle preview
+          const dx = x - startPoint.x;
+          const dy = y - startPoint.y;
+          const radius = Math.sqrt(dx * dx + dy * dy);
+          ctx.beginPath();
+          ctx.arc(startPoint.x, startPoint.y, radius, 0, Math.PI * 2);
+          ctx.stroke();
           break;
+          
         case 'pencil':
-          if (shape.points && shape.points.length > 1) {
-            drawPencil(ctx, shape.points, shape.color);
-          } else {
-            console.warn('Invalid pencil shape:', shape);
+          // Draw pencil preview
+          if (currentPoints.length > 0) {
+            ctx.beginPath();
+            ctx.moveTo(currentPoints[0].x, currentPoints[0].y);
+            
+            for (let i = 1; i < currentPoints.length; i++) {
+              ctx.lineTo(currentPoints[i].x, currentPoints[i].y);
+            }
+            
+            ctx.lineTo(x, y);
+            ctx.stroke();
           }
           break;
+          
         case 'text':
-          // For text shapes, we draw the text but NOT the handles here
-          // Just draw the text itself - handles are drawn separately
-          const isSelected = shape === selectedShape;
-          // Don't include selection handles when drawing text via drawText
-          if (!isSelected) {
-            drawText(ctx, shape);
-          } else {
-            // Just use the imported draw text function for selected text 
-            // without selection handles
-            drawingTools.drawText(ctx, shape);
-          }
+          // Use the dedicated text selection preview function
+          drawTextSelectionPreview(
+            ctx,
+            startPoint,
+            { x, y },
+            zoomLevel,
+            canvasOffset
+          );
           break;
-        default:
-          console.warn('Unknown shape type:', shape.type);
       }
-    });
-    
-    // Draw the text being typed directly on canvas
-    if (isTypingText && textPosition) {
-      console.log('Drawing active text at:', textPosition);
       
-      // Use our helper to draw the active text with styling
-      const textStyleOptions = {
-        fontSize: isEditingText && originalShapePos.current ? originalShapePos.current.fontSize : 16,
-        fontWeight: isEditingText && originalShapePos.current ? originalShapePos.current.fontWeight : 'normal',
-        fontStyle: isEditingText && originalShapePos.current ? originalShapePos.current.fontStyle : 'normal',
-        textDecoration: isEditingText && originalShapePos.current ? originalShapePos.current.textDecoration : 'none',
-        align: isEditingText && originalShapePos.current ? originalShapePos.current.align : 'left'
+      ctx.restore();
+    }
+  };
+
+  // Add custom mouse move handler that handles text resizing and preview
+  const handleMouseMoveWithPreview = (e) => {
+    // First call the standard handler
+    handleMouseMove(e, ctx);
+    
+    // Then draw the preview
+    drawPreview(e);
+  };
+
+  // Create a new mousedown handler using our selection utility
+  const handleClickDeselect = (e) => {
+    console.log("Mouse down", new Date().toISOString());
+
+    // If not in select mode, just use standard handling
+    if (activeTool !== 'select') {
+      handleMouseDown(e, ctx);
+      return;
+    }
+
+    // Use the selection utility to handle deselection/selection
+    const result = handleClickDeselection(e, ctx);
+    
+    if (result.deselected) {
+      // We clicked outside any shape - create a context without selectedShape for panning
+      const deselectedCtx = {
+        ...ctx,
+        selectedShape: null
       };
       
-      const textColor = isEditingText && originalShapePos.current ? originalShapePos.current.color : DRAWING_COLOR;
-      DirectTextInput.drawActiveText(ctx, textInput, textPosition, textColor, textStyleOptions);
+      // Ensure deselection is tracked
+      userDeselected.current = true;
+      
+      // Call handleMouseDown with the modified context
+      handleMouseDown(e, deselectedCtx);
+    } 
+    else if (result.selectedNew) {
+      // We selected a new shape - set up for dragging
+      console.log("Selected new shape:", result.newShape.id);
+      
+      // This is a deliberate user selection - prevent auto-selection override
+      userDeselected.current = true;
+      
+      const updatedCtx = {
+        ...ctx,
+        selectedShape: result.newShape
+      };
+      
+      // Store original position for potential dragging
+      originalRefs.originalShapePos.current = { ...result.newShape };
+      setIsMovingShape(true);
+      setIsDragging(true);
+      
+      // Calculate drag start position
+      const rect = canvasRef.current.getBoundingClientRect();
+      const dragX = (e.clientX - rect.left) / zoomLevel - canvasOffset.x;
+      const dragY = (e.clientY - rect.top) / zoomLevel - canvasOffset.y;
+      setDragStart({ x: dragX, y: dragY });
+      
+      // Call handleMouseDown with the updated context
+      handleMouseDown(e, updatedCtx);
     }
-    
-    // Draw selection rectangle and handles if a shape is selected
-    if (selectedShape) {
-      const HANDLE_SIZE = 8;
-      const box = getShapeBoundingBox(selectedShape);
-      
-      // Draw selection rectangle around the object with dashed border
-      ctx.strokeStyle = '#7e73ff'; // Purple outline
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 3]);
-      
-      // Draw the selection indicator (same for all shapes)
-      ctx.strokeRect(box.x, box.y, box.width, box.height);
-      
-      ctx.setLineDash([]);
-      
-      // Draw only the corner and edge handles (no internal handles)
-      const handles = [
-        // Corner handles
-        { name: 'topLeft', x: box.x, y: box.y },
-        { name: 'topRight', x: box.x + box.width, y: box.y },
-        { name: 'bottomLeft', x: box.x, y: box.y + box.height },
-        { name: 'bottomRight', x: box.x + box.width, y: box.y + box.height },
-        
-        // Middle handles on each side (external only)
-        { name: 'topCenter', x: box.x + box.width/2, y: box.y },
-        { name: 'middleRight', x: box.x + box.width, y: box.y + box.height/2 },
-        { name: 'bottomCenter', x: box.x + box.width/2, y: box.y + box.height },
-        { name: 'middleLeft', x: box.x, y: box.y + box.height/2 }
-      ];
-      
-      // Draw all handles
-      handles.forEach(handle => {
-        drawHandle(ctx, handle.x, handle.y);
-      });
+    else {
+      // No change in selection - proceed with standard handling
+      handleMouseDown(e, ctx);
     }
-    
-    ctx.restore();
-  }, [shapes, selectedShape, zoomLevel, canvasOffset, isTypingText, textInput, textPosition]);
+  };
 
-  // Update getCanvasCoordinates import to ensure it's working correctly
-  useEffect(() => {
-    // Add logging to check getCanvasCoordinates function
-    if (canvasRef.current) {
-      const testEvent = { clientX: 100, clientY: 100 };
-      const coords = getCanvasCoordinates(canvasRef.current, testEvent, zoomLevel, canvasOffset);
-      console.log('Test coordinates:', coords, 'with zoom:', zoomLevel, 'and offset:', canvasOffset);
+  const handleMouseUpWithAutoSelect = (e) => {
+    // Mark that we're handling a mouse release to prevent auto-selection
+    isHandlingMouseRelease.current = true;
+    
+    // Process the mouse up event
+    handleMouseUp(e, ctx);
+    
+    // Handle text mode specially - don't switch to select on mouse up
+    if (activeTool === 'text') {
+      isHandlingMouseRelease.current = false;
+      return;
     }
-  }, [zoomLevel, canvasOffset]);
+    
+    // For other tools, immediately switch to select tool
+    setActiveTool('select');
+    
+    // Only select the last shape if:
+    // 1. There are shapes
+    // 2. We haven't explicitly deselected (clicked empty space)
+    // 3. We haven't explicitly selected a different shape
+    if (shapes.length > 0 && !userDeselected.current) {
+      console.log("Auto-selecting last shape after mouse up");
+      setSelectedShape(shapes[shapes.length - 1]);
+    } else {
+      console.log("Respecting user selection/deselection after mouse up");
+    }
+    
+    // Reset the handling flag
+    isHandlingMouseRelease.current = false;
+  };
 
   return (
-    <div 
-      className="relative w-full h-full overflow-hidden" 
-      tabIndex={0} 
-      onKeyDown={(e) => {
-        // The useEffect handles all keyboard events now
-      }}
-      onDoubleClick={handleDoubleClick}
+    <div
+      className="relative w-full h-full overflow-hidden bg-white dark:bg-zinc-900"
+      tabIndex={0}
       style={{ cursor: getCursorType(activeTool, selectedShape, resizeHandle, isTypingText) }}
+      onKeyDown={handleKeyDownWrapper}
+      onDoubleClick={(e) => handleDoubleClick(e, ctx)}
     >
       <canvas
         ref={canvasRef}
-        className="absolute top-0 left-0 w-full h-full bg-white dark:bg-zinc-900"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onWheel={handleWheel}
+        className="absolute top-0 left-0 w-full h-full"
+        onMouseDown={handleMouseDownWithTextCheck}
+        onMouseMove={handleMouseMoveWithPreview}
+        onMouseUp={(e) => handleMouseUpWithAutoSelect(e)}
+        onWheel={(e) => handleWheel(e, ctx)}
       />
-      
+
       <ZoomControls zoomLevel={zoomLevel} setZoomLevel={setZoomLevel} />
-      
-      {/* Status bar */}
+
       <div className="absolute bottom-4 left-4 text-xs bg-black/10 text-white px-2 py-1 rounded">
         {formatCursorPosition(cursorPosition)} | Zoom: {Math.round(zoomLevel * 100)}%
       </div>

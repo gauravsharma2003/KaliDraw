@@ -14,54 +14,76 @@ const DirectTextInput = {
       fontWeight = 'normal', 
       fontStyle = 'normal', 
       textDecoration = 'none',
-      align = 'left'
+      align = 'center', // Default to center
+      verticalAlign = 'middle' // Default to middle
     } = options;
     
+    // Use a consistent font setting
     ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`;
     ctx.textBaseline = 'top';
     
-    const lines = textInput.split('\n');
+    // Ensure we have a valid string to render
+    const safeText = textInput || '';
+    const lines = safeText.split('\n');
     const lineHeight = fontSize * 1.2;
     
-    // Define padding
-    const paddingLeft = 10;
-    const paddingRight = 10;
-    const paddingTop = 5;
-    const paddingBottom = 5;
+    // Use more generous padding to ensure text stays within bounds
+    const paddingLeft = fontSize * 0.8;
+    const paddingRight = fontSize * 0.8;
+    const paddingTop = fontSize * 0.6;
+    const paddingBottom = fontSize * 0.6;
     
-    // Calculate content width
-    let contentWidth = 100; // minimum width
-    lines.forEach(line => {
-      const metrics = ctx.measureText(line);
-      contentWidth = Math.max(contentWidth, metrics.width);
-    });
-    const maxWidth = contentWidth + paddingLeft + paddingRight;
-    const boxHeight = Math.max(lineHeight * lines.length + paddingTop + paddingBottom, 40);
+    // Use box dimensions from position, accounting for minimum size
+    const boxWidth = Math.max(position.width, 80);
+    const boxHeight = Math.max(position.height, 40);
     
     // Draw dashed rectangle box
     ctx.strokeStyle = '#7e73ff';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
-    ctx.strokeRect(position.x, position.y, maxWidth, boxHeight);
+    ctx.strokeRect(position.x, position.y, boxWidth, boxHeight);
     ctx.setLineDash([]);
     
     // Set text alignment and calculate xOffset
     let xOffset;
     if (align === 'center') {
-      xOffset = position.x + maxWidth / 2;
+      xOffset = position.x + boxWidth / 2;
       ctx.textAlign = 'center';
     } else if (align === 'right') {
-      xOffset = position.x + maxWidth - paddingRight;
+      xOffset = position.x + boxWidth - paddingRight;
       ctx.textAlign = 'right';
     } else {
       xOffset = position.x + paddingLeft;
       ctx.textAlign = 'left';
     }
     
+    // Calculate vertical positioning based on verticalAlign
+    let yOffset = position.y + paddingTop;
+    const totalTextHeight = lines.length * lineHeight;
+    
+    if (verticalAlign === 'middle') {
+      yOffset = position.y + (boxHeight - totalTextHeight) / 2;
+    } else if (verticalAlign === 'bottom') {
+      yOffset = position.y + boxHeight - totalTextHeight - paddingBottom;
+    }
+    
+    // Draw text lines with clipping to ensure text stays in box
+    ctx.save();
+    // Create a clipping region to keep text inside the box
+    ctx.beginPath();
+    ctx.rect(position.x, position.y, boxWidth, boxHeight);
+    ctx.clip();
+    
     // Draw text lines
     ctx.fillStyle = color;
     lines.forEach((line, index) => {
-      ctx.fillText(line, xOffset, position.y + paddingTop + index * lineHeight);
+      // Skip very long lines that might cause performance issues
+      if (line.length > 1000) {
+        line = line.substring(0, 1000) + '...';
+      }
+      
+      ctx.fillText(line, xOffset, yOffset + index * lineHeight);
+      
       if (textDecoration === 'underline') {
         const metrics = ctx.measureText(line);
         let underlineX;
@@ -75,8 +97,8 @@ const DirectTextInput = {
         ctx.strokeStyle = color;
         ctx.lineWidth = fontSize / 15;
         ctx.beginPath();
-        ctx.moveTo(underlineX, position.y + paddingTop + index * lineHeight + fontSize);
-        ctx.lineTo(underlineX + metrics.width, position.y + paddingTop + index * lineHeight + fontSize);
+        ctx.moveTo(underlineX, yOffset + index * lineHeight + fontSize);
+        ctx.lineTo(underlineX + metrics.width, yOffset + index * lineHeight + fontSize);
         ctx.stroke();
       }
     });
@@ -88,13 +110,13 @@ const DirectTextInput = {
       let currentLineWidth = ctx.measureText(currentLine).width;
       let cursorX;
       if (align === 'center') {
-        cursorX = position.x + maxWidth / 2 + currentLineWidth / 2;
+        cursorX = xOffset + currentLineWidth / 2;
       } else if (align === 'right') {
-        cursorX = position.x + maxWidth - paddingRight;
+        cursorX = xOffset;
       } else {
-        cursorX = position.x + paddingLeft + currentLineWidth;
+        cursorX = xOffset + currentLineWidth;
       }
-      const cursorY = position.y + paddingTop + (lines.length - 1) * lineHeight;
+      const cursorY = yOffset + (lines.length - 1) * lineHeight;
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -103,11 +125,12 @@ const DirectTextInput = {
       ctx.stroke();
     }
     
+    // Restore context to remove clipping
+    ctx.restore();
+    
     return {
-      width: maxWidth,
-      height: boxHeight,
-      paddingLeft: paddingLeft,
-      paddingTop: paddingTop
+      width: boxWidth,
+      height: boxHeight
     };
   },
   
@@ -160,21 +183,30 @@ const DirectTextInput = {
     const paddingBottom = 5;
     
     // Find the widest line for the content width
-    let contentWidth = 100; // Minimum content width
+    let maxWidth = 0;
     for (const line of lines) {
-      const metrics = ctx.measureText(line);
-      contentWidth = Math.max(contentWidth, metrics.width);
+      const metrics = ctx.measureText(line || ' ');
+      maxWidth = Math.max(maxWidth, metrics.width);
     }
-    const maxWidth = contentWidth + paddingLeft + paddingRight;
+    
+    // Calculate total width with padding
+    const totalWidth = Math.max(maxWidth + paddingLeft + paddingRight, 100);
     
     // Calculate box height based on number of lines
-    const boxHeight = Math.max(lineHeight * lines.length + paddingTop + paddingBottom, 40);
+    const contentHeight = lineHeight * lines.length;
+    const totalHeight = Math.max(contentHeight + paddingTop + paddingBottom, 40);
     
     return {
-      width: maxWidth,
-      height: boxHeight,
-      paddingLeft: paddingLeft,
-      paddingTop: paddingTop
+      width: totalWidth,
+      height: totalHeight,
+      contentWidth: maxWidth,
+      contentHeight: contentHeight,
+      lineHeight: lineHeight,
+      lineCount: lines.length,
+      paddingLeft,
+      paddingRight,
+      paddingTop,
+      paddingBottom
     };
   }
 };

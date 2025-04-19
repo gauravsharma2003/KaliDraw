@@ -41,6 +41,7 @@ const TextEditor = ({
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (editorRef.current && !editorRef.current.contains(e.target)) {
+        console.log('Click detected outside editor - completing text edit');
         handleComplete();
       }
     };
@@ -81,6 +82,11 @@ const TextEditor = ({
     }
   };
 
+  const handleTextChange = (e) => {
+    setText(e.target.value);
+    // Text dimensions will be recalculated automatically
+  };
+
   return (
     <div 
       ref={editorRef}
@@ -94,7 +100,7 @@ const TextEditor = ({
       <textarea
         ref={inputRef}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={handleTextChange}
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
         placeholder="Type here..."
@@ -103,6 +109,12 @@ const TextEditor = ({
           fontSize: '16px',
           transformOrigin: 'top left',
           transform: `scale(${1/zoomLevel})`,
+          width: Math.max(150, position.width) * (1/zoomLevel) + 'px',
+          height: Math.max(40, position.height) * (1/zoomLevel) + 'px',
+          textAlign: 'center',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
         }}
       />
       <div className="absolute -bottom-6 left-0 right-0 text-center text-xs text-white">

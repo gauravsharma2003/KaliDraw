@@ -3,24 +3,15 @@
  */
 import * as drawingTools from './drawingTools';
 
-// Convert screen coordinates to canvas coordinates
+// Convert screen coordinates to logical canvas coordinates
 export const getCanvasCoordinates = (canvas, event, zoomLevel, canvasOffset) => {
   const rect = canvas.getBoundingClientRect();
-  
-  // For accurate positioning, we need to:
-  // 1. Convert from screen coordinates to canvas element coordinates
-  // 2. Apply the inverse of zoom and offset transformations
-  
-  // Calculate position in canvas space
-  const canvasX = event.clientX - rect.left;
-  const canvasY = event.clientY - rect.top;
-  
-  // Then apply the inverse transformations to get the logical coordinates
-  // Divide by zoom level and subtract the canvas offset
-  return {
-    x: canvasX / zoomLevel - canvasOffset.x,
-    y: canvasY / zoomLevel - canvasOffset.y
-  };
+  const cssX = event.clientX - rect.left;
+  const cssY = event.clientY - rect.top;
+  // Apply inverse zoom and offset transforms
+  const x = cssX / zoomLevel - canvasOffset.x;
+  const y = cssY / zoomLevel - canvasOffset.y;
+  return { x, y };
 };
 
 // Setup canvas with proper dimensions
@@ -74,8 +65,8 @@ export const redrawShapes = (ctx, shapes, zoomLevel, canvasOffset) => {
     return;
   }
   
-  // Debug info
-  console.log('Redrawing shapes array:', shapes.length);
+  // Debug info - commented out to reduce log flooding
+  // console.log('Redrawing shapes array:', shapes.length);
   
   // Save context state
   ctx.save();

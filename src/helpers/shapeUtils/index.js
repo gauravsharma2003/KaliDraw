@@ -1,25 +1,16 @@
-/**
- * This file is a backwards compatibility wrapper for the refactored shapeUtils folder.
- * It re-exports all the functions from the shapeUtils module for existing code that hasn't been updated.
- */
+// Export all shape utility functions from a single entry point
 
+// Shape detection utilities
+import { isPointInShape, getShapeBoundingBox } from './ShapeDetection';
+
+// Shape resize utilities
+import { resizeShape, getResizeHandle, getShapeResizeHandles } from './ShapeResize';
+
+// Shape geometry utilities
+import { generateId, scaleCircle, getCircleCenter, calculateTextMetrics } from './ShapeGeometry';
+
+// Text shape utilities
 import {
-  // Shape detection
-  isPointInShape,
-  getShapeBoundingBox,
-  
-  // Shape resize
-  resizeShape,
-  getResizeHandle,
-  getShapeResizeHandles,
-  
-  // Shape geometry
-  generateId,
-  scaleCircle,
-  getCircleCenter,
-  calculateTextMetrics,
-  
-  // Text utilities
   createText,
   scaleText,
   getTextBoundingBox,
@@ -31,9 +22,8 @@ import {
   toggleUnderline,
   setTextColor,
   updateTextStyle
-} from './shapeUtils';
+} from './TextUtils';
 
-// Re-export all functions
 export {
   // Shape detection
   isPointInShape,
